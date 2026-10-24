@@ -48,11 +48,23 @@ contract GasTest is Test {
         console.log("TOPLAM + 6 x 21000 intrinsic        ", total + 6 * 21000);
     }
 
+    /// @dev `new TugraVault()` kullanilmaz: Foundry 1.8 bunu `VM::deployCode`
+    ///      cheatcode'una cevirir ve olculen deger gercek CREATE maliyeti
+    ///      yerine cheatcode sarmalayicisini gosterir (~20k, hatali).
+    ///      Bu yuzden initcode alinip ham CREATE ile deploy edilir.
     function _deploy() internal {
-        vm.prank(ownerAddr);
+        bytes memory initcode = vm.getCode("TugraVault.sol:TugraVault");
+        address addr;
+        vm.startPrank(ownerAddr);
         uint256 g = gasleft();
-        vault = new TugraVault();
+        assembly {
+            addr := create(0, add(initcode, 0x20), mload(initcode))
+        }
         measured[0] = g - gasleft();
+        vm.stopPrank();
+        require(addr != address(0), "deploy basarisiz");
+        vault = TugraVault(payable(addr));
+        assertEq(vault.owner(), ownerAddr);
         labels[0] = "1 deploy             ";
     }
 

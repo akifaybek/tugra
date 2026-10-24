@@ -1,28 +1,36 @@
 #!/usr/bin/env bash
 # Tugra - testnet kanit akisi. ALTI islem, her biri AYRI adim.
 #
-# Kullanim:  ./script/proof-flow.sh <adim>
+# Kullanim:        ./script/proof-flow.sh <adim>
 # Gondermek icin:  TUGRA_CONFIRM=1 ./script/proof-flow.sh <adim>
-# Onay olmadan hicbir islem gonderilmez.
+#
+# TUGRA_CONFIRM yalnizca kaza eseri gonderimi engelleyen teknik bir kapidir;
+# kullanicinin onayinin YERINE GECMEZ. Her adim icin ayrica sozlu onay alinir.
 #
 # Adimlar:
-#   1  deploy          (sahip)  TugraVault deploy edilir
-#   2  deposit         (sahip)  kasaya native MON yatirilir
-#   3  mandate         (sahip)  tek kullanimlik vekalet olusturulur
-#   4  wrong-payee     (ajan)   yanlis alici -> PayeeMismatch ile REVERT
-#   5  pay             (ajan)   mesru odeme -> BASARILI
-#   6  repeat          (ajan)   ayni vekalet -> AlreadyUsed ile REVERT
+#   1 deploy       (sahip)  TugraVault deploy edilir
+#   2 deposit      (sahip)  kasaya native MON yatirilir
+#   3 mandate      (sahip)  tek kullanimlik vekalet olusturulur
+#   4 wrong-payee  (ajan)   yanlis alici -> PayeeMismatch ile REVERT
+#   5 pay          (ajan)   mesru odeme -> BASARILI
+#   6 repeat       (ajan)   ayni vekalet -> AlreadyUsed ile REVERT
 #
-# REVERT BEKLENEN ADIMLAR (4 ve 6):
-#   estimateGas revert'te hata verir ve islemi ag oncesi engeller. Bu yuzden
-#   bu adimlar `cast mktx` ile OFFLINE imzalanir (sabit --gas-limit verildigi
-#   icin tahmin yapilmaz), sonra `cast publish --async` ile yayinlanir.
-#   Boylece islem gercekten zincire gider ve orada revert eder.
+# GAS POLITIKASI (bkz. config.sh):
+#   Basarili adimlar (1,2,3,5) -> estimateGas x 1,2
+#   Revert bekleyen adimlar (4,6) -> olculmus sabit limit $GAS_REVERT
+#
+# Adim 4 ve 6 neden sabit limit kullanir: `cast send` gas limiti verilmezse
+# once eth_estimateGas cagirir; bu revert'te hata dondurur ve islem HIC
+# gonderilmez. Yerel Monad ortaminda dogrulandi:
+#   "Error: Failed to estimate gas: ... execution reverted: PayeeMismatch"
+# --gas-limit verildiginde tahmin atlanir, islem zincire gider ve orada
+# revert eder (status 0). Yerel dogrulamada revertReason dogru okundu:
+#   0xe28e12ad = PayeeMismatch, 0x7b8c8210 = AlreadyUsed
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 
 STEP="${1:-}"
-[[ -z "$STEP" ]] && { sed -n '2,25p' "$0"; exit 1; }
+[[ -z "$STEP" ]] && { sed -n '2,30p' "$0"; exit 1; }
 
 require_var MONAD_RPC_URL
 require_var OWNER_PRIVATE_KEY
@@ -33,92 +41,97 @@ require_var ATTACKER_ADDRESS
 RPC=(--rpc-url "$MONAD_RPC_URL")
 OWNER=(--private-key "$OWNER_PRIVATE_KEY")
 AGENT=(--private-key "$AGENT_PRIVATE_KEY")
-
 EXEC_SIG="execute(uint256,address,uint256)"
+
+tx_hash() { python3 -c "import sys,json;print(json.load(sys.stdin)['transactionHash'])"; }
+
+report() {
+  local hash="$1" beklenen="$2" status gas
+  status=$(cast receipt "${RPC[@]}" "$hash" status)
+  gas=$(cast receipt "${RPC[@]}" "$hash" gasUsed)
+  show_tx "$hash"
+  echo "status: $status   gasUsed: $gas   (beklenen status: $beklenen)"
+  [[ "$status" != "$beklenen" ]] && { echo "UYARI: beklenen sonuc alinmadi." >&2; exit 1; }
+  return 0
+}
 
 # Revert bekleyen islemi tahmin yapmadan gonderir.
 send_expecting_revert() {
-  local who_key="$1"; shift
-  local raw hash status
-  raw=$(cast mktx "$@" --gas-limit "$GAS_REVERT" --private-key "$who_key" "${RPC[@]}")
-  hash=$(cast publish --async "$raw" "${RPC[@]}")
-  show_tx "$hash"
-  echo "Makbuz bekleniyor..."
-  cast receipt "$hash" "${RPC[@]}" >/dev/null
-  status=$(cast receipt "$hash" status "${RPC[@]}")
-  echo "status: $status  (0 = zincirde revert etti = BEKLENEN)"
-  if [[ "$status" == "1" ]]; then
-    echo "UYARI: islem BASARILI oldu, oysa revert bekleniyordu." >&2
-    exit 1
+  local key="$1"; shift
+  local out hash
+  set +e
+  out=$(cast send "${RPC[@]}" --private-key "$key" --gas-limit "$GAS_REVERT" "$@" --json 2>&1)
+  set -e
+  hash=$(printf '%s' "$out" | tx_hash 2>/dev/null || true)
+  if [[ -z "$hash" ]]; then
+    echo "Islem gonderilemedi:" >&2; printf '%s\n' "$out" | head -5 >&2; exit 1
   fi
+  report "$hash" "false"
+  echo "revert sebebi: $(cast receipt "${RPC[@]}" "$hash" --json \
+    | python3 -c "import sys,json;print(json.load(sys.stdin).get('revertReason','(yok)'))")"
 }
 
 case "$STEP" in
 
   1|deploy)
-    confirm_gate "TugraVault deploy (sahip, gas limiti $GAS_DEPLOY)"
-    forge create src/TugraVault.sol:TugraVault \
-      "${RPC[@]}" "${OWNER[@]}" --broadcast --gas-limit "$GAS_DEPLOY"
+    confirm_gate "TugraVault deploy (sahip, gas: estimateGas x1,2)"
+    forge create src/TugraVault.sol:TugraVault "${RPC[@]}" "${OWNER[@]}" --broadcast
     echo
     echo "Ciktidaki 'Deployed to' adresini .env icine VAULT_ADDRESS olarak yazin."
     ;;
 
   2|deposit)
     require_var VAULT_ADDRESS
-    confirm_gate "Kasaya $VAULT_FUNDING yatir (sahip, gas limiti $GAS_DEPOSIT)"
-    hash=$(cast send "$VAULT_ADDRESS" "deposit()" \
-      --value "$VAULT_FUNDING" --gas-limit "$GAS_DEPOSIT" \
-      "${RPC[@]}" "${OWNER[@]}" --json | grep -o '"transactionHash":"[^"]*"' | cut -d'"' -f4)
-    show_tx "$hash"
-    echo "Kasa bakiyesi: $(cast from-wei "$(cast balance "$VAULT_ADDRESS" "${RPC[@]}")") MON"
+    OWNER_ADDRESS=$(cast wallet address --private-key "$OWNER_PRIVATE_KEY")
+    LIM=$(est_limit --from "$OWNER_ADDRESS" --value "$VAULT_FUNDING" "$VAULT_ADDRESS" "deposit()")
+    confirm_gate "Kasaya $VAULT_FUNDING yatir (sahip, gas limiti $LIM)"
+    report "$(cast send "${RPC[@]}" "${OWNER[@]}" --gas-limit "$LIM" \
+      --value "$VAULT_FUNDING" "$VAULT_ADDRESS" "deposit()" --json | tx_hash)" "true"
+    echo "Kasa bakiyesi: $(cast from-wei "$(cast balance "${RPC[@]}" "$VAULT_ADDRESS")") MON"
     ;;
 
   3|mandate)
     require_var VAULT_ADDRESS
-    NOW=$(cast block latest timestamp "${RPC[@]}")
-    EXPIRY=$((NOW + MANDATE_TTL_SECONDS))
-    confirm_gate "Vekalet olustur: ajan -> $PROVIDER_ADDRESS, $MANDATE_AMOUNT_ETHER MON, son $EXPIRY"
+    OWNER_ADDRESS=$(cast wallet address --private-key "$OWNER_PRIVATE_KEY")
     AGENT_ADDRESS=$(cast wallet address --private-key "$AGENT_PRIVATE_KEY")
-    hash=$(cast send "$VAULT_ADDRESS" \
-      "createMandate(address,address,uint256,uint64)" \
-      "$AGENT_ADDRESS" "$PROVIDER_ADDRESS" "$MANDATE_AMOUNT_WEI" "$EXPIRY" \
-      --gas-limit "$GAS_CREATE" "${RPC[@]}" "${OWNER[@]}" --json \
-      | grep -o '"transactionHash":"[^"]*"' | cut -d'"' -f4)
-    show_tx "$hash"
-    echo "Vekalet sayisi: $(cast call "$VAULT_ADDRESS" "mandateCount()(uint256)" "${RPC[@]}")"
+    NOW=$(cast block "${RPC[@]}" latest --field timestamp)
+    EXPIRY=$((NOW + MANDATE_TTL_SECONDS))
+    ARGS=("$VAULT_ADDRESS" "createMandate(address,address,uint256,uint64)"
+          "$AGENT_ADDRESS" "$PROVIDER_ADDRESS" "$MANDATE_AMOUNT_WEI" "$EXPIRY")
+    LIM=$(est_limit --from "$OWNER_ADDRESS" "${ARGS[@]}")
+    confirm_gate "Vekalet olustur: $MANDATE_AMOUNT_ETHER MON -> $PROVIDER_ADDRESS, son $EXPIRY (gas limiti $LIM)"
+    report "$(cast send "${RPC[@]}" "${OWNER[@]}" --gas-limit "$LIM" "${ARGS[@]}" --json | tx_hash)" "true"
+    echo "Vekalet sayisi: $(cast call "${RPC[@]}" "$VAULT_ADDRESS" "mandateCount()(uint256)")"
     echo "Bu kimligi .env icine MANDATE_ID olarak yazin."
     ;;
 
   4|wrong-payee)
     require_var VAULT_ADDRESS; require_var MANDATE_ID
-    confirm_gate "YANLIS ALICI denemesi (ajan) -> PayeeMismatch beklenir, gas limiti $GAS_REVERT"
+    confirm_gate "YANLIS ALICI (ajan) -> PayeeMismatch beklenir, sabit gas limiti $GAS_REVERT"
     send_expecting_revert "$AGENT_PRIVATE_KEY" \
       "$VAULT_ADDRESS" "$EXEC_SIG" "$MANDATE_ID" "$ATTACKER_ADDRESS" "$MANDATE_AMOUNT_WEI"
-    echo "Vekalet tukenmedi mi? used = $(cast call "$VAULT_ADDRESS" \
-      "getMandate(uint256)((address,uint64,bool,bool,address,uint256))" "$MANDATE_ID" "${RPC[@]}")"
+    echo "Vekalet tukenmedi mi (used alani false olmali):"
+    cast call "${RPC[@]}" "$VAULT_ADDRESS" \
+      "getMandate(uint256)((address,uint64,bool,bool,address,uint256))" "$MANDATE_ID"
     ;;
 
   5|pay)
     require_var VAULT_ADDRESS; require_var MANDATE_ID
-    confirm_gate "MESRU odeme (ajan) -> basarili beklenir, gas limiti $GAS_PAY"
-    hash=$(cast send "$VAULT_ADDRESS" "$EXEC_SIG" \
-      "$MANDATE_ID" "$PROVIDER_ADDRESS" "$MANDATE_AMOUNT_WEI" \
-      --gas-limit "$GAS_PAY" "${RPC[@]}" "${AGENT[@]}" --json \
-      | grep -o '"transactionHash":"[^"]*"' | cut -d'"' -f4)
-    show_tx "$hash"
-    echo "Kasa bakiyesi : $(cast from-wei "$(cast balance "$VAULT_ADDRESS" "${RPC[@]}")") MON"
-    echo "Saglayici     : $(cast from-wei "$(cast balance "$PROVIDER_ADDRESS" "${RPC[@]}")") MON"
+    AGENT_ADDRESS=$(cast wallet address --private-key "$AGENT_PRIVATE_KEY")
+    ARGS=("$VAULT_ADDRESS" "$EXEC_SIG" "$MANDATE_ID" "$PROVIDER_ADDRESS" "$MANDATE_AMOUNT_WEI")
+    LIM=$(est_limit --from "$AGENT_ADDRESS" "${ARGS[@]}")
+    confirm_gate "MESRU odeme (ajan) -> basarili beklenir, gas limiti $LIM"
+    report "$(cast send "${RPC[@]}" "${AGENT[@]}" --gas-limit "$LIM" "${ARGS[@]}" --json | tx_hash)" "true"
+    echo "Kasa      : $(cast from-wei "$(cast balance "${RPC[@]}" "$VAULT_ADDRESS")") MON"
+    echo "Saglayici : $(cast from-wei "$(cast balance "${RPC[@]}" "$PROVIDER_ADDRESS")") MON"
     ;;
 
   6|repeat)
     require_var VAULT_ADDRESS; require_var MANDATE_ID
-    confirm_gate "TEKRAR odeme (ajan) -> AlreadyUsed beklenir, gas limiti $GAS_REVERT"
+    confirm_gate "TEKRAR odeme (ajan) -> AlreadyUsed beklenir, sabit gas limiti $GAS_REVERT"
     send_expecting_revert "$AGENT_PRIVATE_KEY" \
       "$VAULT_ADDRESS" "$EXEC_SIG" "$MANDATE_ID" "$PROVIDER_ADDRESS" "$MANDATE_AMOUNT_WEI"
     ;;
 
-  *)
-    echo "Bilinmeyen adim: $STEP" >&2
-    exit 1
-    ;;
+  *) echo "Bilinmeyen adim: $STEP" >&2; exit 1 ;;
 esac

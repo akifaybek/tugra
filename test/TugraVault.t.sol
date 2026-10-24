@@ -29,13 +29,16 @@ contract TugraVaultTest is Test {
 
     function setUp() public {
         vm.warp(1_700_000_000); // deterministik zaman tabani
-
-        vm.prank(ownerAddr);
-        vault = new TugraVault();
-
         vm.deal(ownerAddr, 100 ether);
-        vm.prank(ownerAddr);
+
+        // startPrank/stopPrank kullaniliyor: Foundry 1.8 `new X()` ifadesini
+        // `VM::deployCode` cheatcode'una ceviriyor ve cheatcode tek seferlik
+        // prank'i TUKETMIYOR. Arka arkaya iki vm.prank "cannot overwrite a
+        // prank until it is applied at least once" hatasi verir.
+        vm.startPrank(ownerAddr);
+        vault = new TugraVault();
         vault.deposit{value: FUNDING}();
+        vm.stopPrank();
 
         expiry = uint64(block.timestamp + 1 hours);
     }

@@ -25,9 +25,10 @@ Son guncelleme: 2026-10-24
 #### Dogrulama sonuclari (gercek calistirma, 2026-10-24)
 
 ```
-forge --version -> 1.7.1-Homebrew
-forge build --force -> Compiling 23 files with Solc 0.8.35 (evm_version = prague)
-                       Compiler run successful with warnings; exit 0
+forge (/Users/akif/.foundry/bin/forge) -> 1.8.0, commit 61ae26af36
+forge build --force -> Compiling 23 files with Solc 0.8.35
+                       (evm_version = prague, network = monad)
+                       Compiler run successful with warnings
 forge test      -> 52 passed; 0 failed; 0 skipped (2 suite, 52 total tests)
                    TugraVault.t.sol 51 + Gas.t.sol 1
 ```
@@ -125,89 +126,232 @@ ve https://docs.monad.xyz/guides/deploy-smart-contract/hardhat
 - Kontrat boyutu 2.983 bayt; Monad limitleri 128 KB runtime / 256 KB initcode.
   Sorun yok.
 
-### Foundry surumu - EKSIK, ONAY BEKLIYOR
+### Foundry surumu - COZULDU
 
-Resmi doküman: "Foundry v1.8+ provides native support for Monad...
-Versions before v1.8 lack Monad execution capabilities."
+Resmi dagitimdan (`~/.foundry/bin/foundryup --install v1.8.0`) kuruldu.
+Homebrew kurulumu KALDIRILMADI; yalnizca PATH sirasi degistirildi.
 
-Yerel surum **1.7.1-Homebrew** -> v1.8 ALTINDA. Bu nedenle `network = "monad"`
-secenegi kullanilamiyor ve yerel testler Monad'in gas modeli, opcode
-fiyatlandirmasi ve MIP-8 depolama muhasebesi ALTINDA CALISMIYOR.
+`~/.zshrc` sonuna eklendi: `export PATH="$HOME/.foundry/bin:$PATH"`
+(dosyada onceden `export PATH="/opt/homebrew/bin:$PATH"` satiri vardi ve
+homebrew'u one aliyordu; yeni satir ondan SONRA geldigi icin resmi dagitim
+kazaniyor.)
 
-Sonuc: **yerel testlerin gecmesi ag uyumlulugu kanitı degildir.** Asagidaki
-gas olcumleri Foundry'nin varsayilan modelinden gelir ve Monad gas modeliyle
-DOGRULANMADI. Foundry 1.8+ kurulmadan once izin istenecek.
+Yeni login shell'de cozumleme dogrulandi:
 
-### Gas olcumu - YERELDE OLCULDU (Monad modeliyle dogrulanmadi)
+| Binary | Yol | Surum |
+| ------ | --- | ----- |
+| forge | `/Users/akif/.foundry/bin/forge` | 1.8.0 (61ae26af36) |
+| cast | `/Users/akif/.foundry/bin/cast` | 1.8.0 |
+| anvil | `/Users/akif/.foundry/bin/anvil` | 1.8.0 |
+| chisel | `/Users/akif/.foundry/bin/chisel` | 1.8.0 |
 
-Kaynak: `test/Gas.t.sol`, `forge test --match-path test/Gas.t.sol -vv`
-Olculen deger yalnizca YURUTME gas'idir; intrinsic 21.000 + calldata haric.
+PATH ilk uc girdi: `~/.foundry/bin`, `~/.nvm/.../bin`, `/opt/homebrew/bin`.
+Eski 1.7.1 hala `/opt/homebrew/bin` altinda duruyor ama one gecmiyor.
 
-| # | Islem | Gonderen | Olculen yurutme | Tahmini islem toplami | Script gas limiti |
-| - | ----- | -------- | --------------- | --------------------- | ----------------- |
-| 1 | deploy | sahip | 696.597 | ~772.000 | 900.000 |
-| 2 | deposit | sahip | 8.846 | ~30.000 | 60.000 |
-| 3 | createMandate | sahip | 97.383 | ~120.500 | 160.000 |
-| 4 | execute yanlis alici (revert) | ajan | 2.179 | ~24.300 | 60.000 |
-| 5 | execute mesru (basarili) | ajan | 39.538 | ~61.700 | 90.000 |
-| 6 | execute tekrar (revert) | ajan | 1.875 | ~24.000 | 60.000 |
+### Monad yurutme ortami etkin
 
-Akisin toplam gas LIMITI: **1.330.000**.
-Base fee tabani 100 MON-gwei ile en kotu ucret: **0,133 MON** (oncelik ucreti
-haric). Her prova icin yeni vekalet (adim 3-6) ~370.000 limit = ~0,037 MON.
+`foundry.toml` icine `network = "monad"` eklendi. Etkin oldugunun kaniti:
+`forge build --sizes` kontrat marjini 24.576 bayt yerine **128.089 / 259.073**
+bayt gosteriyor; bunlar Monad'in 128 KB runtime / 256 KB initcode limitleri.
 
-### Hazirlanan scriptler (hicbiri calistirilmadi)
+**Hardfork:** Resmi dokumana gore yerel yurutme varsayilan olarak en guncel
+hardfork'u (`MonadTen`) kullanir ve canli ag fork'lanirsa Foundry dogru
+hardfork'u kendisi secer. Acik bir `hardfork` satiri YAZILMADI; varsayilan
+MonadTen kullaniliyor. **DOGRULANMADI:** testnet'in su an hangi hardfork'ta
+oldugu canli olarak kontrol edilmedi (zincir islemi yapilmadi). Ilk gercek
+deploy sirasinda dogrulanacak.
+
+### Foundry 1.8 davranis degisikligi - testler duzeltildi
+
+Yukseltmeden sonra butun testler `setUp()` icinde su hatayla patladi:
+`vm.prank: cannot overwrite a prank until it is applied at least once`
+
+Sebep (trace ile bulundu): Foundry 1.8 test kontrati icindeki `new X()`
+ifadesini `VM::deployCode` cheatcode'una ceviriyor; cheatcode ise tek
+seferlik prank'i TUKETMIYOR. Ardindan gelen ikinci `vm.prank` "uzerine
+yazma" sayiliyor. Bu Monad'a ozgu DEGIL - `network` kapaliyken de oluyor.
+
+Duzeltme: deploy + deposit blogu `vm.startPrank` / `vm.stopPrank` arasina
+alindi. 52/52 test geciyor.
+
+Ayni degisiklik gas olcumunu de bozmustu: `new TugraVault()` deployCode'a
+cevrildigi icin olculen deploy gas'i 20.527 gibi gercek disi cikiyordu.
+`test/Gas.t.sol` artik `vm.getCode` + ham `create` opcode'u kullaniyor.
+
+### Gas tablosu - Monad ortaminda OLCULDU
+
+Iki ayri olcum var ve ayri tutulmalari gerekiyor.
+
+**(a) Yurutme gas'i** - `forge test --match-path test/Gas.t.sol -vv`,
+`network = "monad"`. Yalnizca cagri icindeki yurutme; intrinsic ve calldata
+HARIC. Test harness'inin cagri cercevesi de iceride oldugu icin bu degerler
+zincirdeki gercek maliyetin USTUNDE kalir, butce icin kullanilmaz.
+
+| # | Islem | Yurutme gas (Monad) | Onceki (Monad disi) |
+| - | ----- | ------------------- | ------------------- |
+| 1 | deploy (ham CREATE) | 774.094 | 696.597 |
+| 2 | deposit | 39.897 | 8.846 |
+| 3 | createMandate | 117.306 | 97.383 |
+| 4 | revert PayeeMismatch | 42.728 | 2.179 |
+| 5 | execute basarili | 90.385 | 39.538 |
+| 6 | revert AlreadyUsed | 42.424 | 1.875 |
+
+**(b) Toplam islem gas'i** - `anvil --network monad` uzerinde GERCEK islem
+makbuzlarindan okunan `gasUsed`. Intrinsic 21.000 ve calldata DAHIL.
+Butce ve gas limiti bu sutundan turetilir.
+
+| # | Islem | Toplam islem gas (makbuz) | Gonderilecek limit | Limit nasil belirlendi |
+| - | ----- | ------------------------- | ------------------ | ---------------------- |
+| 1 | deploy | 741.873 | ~890.248 | estimateGas x 1,2 |
+| 2 | deposit | 22.694 | ~27.233 | estimateGas x 1,2 |
+| 3 | createMandate | 99.329 | ~119.195 | estimateGas x 1,2 |
+| 4 | revert PayeeMismatch | 42.226 | **60.000** | olculen x 1,42 (sabit) |
+| 5 | execute basarili | 64.645 (estimate 66.831) | ~80.197 | estimateGas x 1,2 |
+| 6 | revert AlreadyUsed | 41.910 | **60.000** | olculen x 1,42 (sabit) |
+
+Not: (a) ve (b) ayni sey degil. (a)'daki dusus/yukselis tek basina ucreti
+degistirmez - **ucreti belirleyen yalnizca gonderilen gas LIMITIDIR.**
+Daha dusuk yurutme gas'i ancak estimateGas'i ve dolayisiyla limiti
+dusurdugu olcude tasarruf saglar.
+
+**Ucret tahmini** (base fee tabani 100 MON-gwei = 1e-7 MON/gas, oncelik
+ucreti HARIC; base fee bu tabanin uzerine cikarsa oransal artar):
+
+| Kalem | Gas limiti toplami | Ucret |
+| ----- | ------------------ | ----- |
+| Ilk kanit akisi (6 islem) | 1.236.873 | ~0,1237 MON |
+| Her ek prova (adim 3-6) | 319.392 | ~0,0319 MON |
+
+**Revert limitinin gerekcesi:** olculen en yuksek revert maliyeti 42.226.
+Secilen 60.000 (x1,42). Limit yetersiz kalirsa islem out-of-gas ile revert
+eder ve makbuzdaki sebep `PayeeMismatch` yerine OOG olur - yani KANIT yok
+olur. Fazladan ~17.800 gas ise taban base fee'de ~0,0018 MON. Hata tarafi
+pahali, guvenlik tarafi ucuz.
+
+### Revert eden islemlerin gonderimi - YERELDE DOGRULANDI
+
+Eski plandaki `cast mktx` + `cast publish --async` zincirine GEREK YOK.
+`anvil --network monad` uzerinde dogrulandi:
+
+- Gas limiti VERILMEDEN: islem hic gonderilmiyor.
+  `Error: Failed to estimate gas: ... execution reverted: PayeeMismatch`
+- `--gas-limit 120000` ile: islem zincire gidiyor, orada revert ediyor.
+  Makbuz `status: false`, `gasUsed: 42226`,
+  `revertReason: custom error 0xe28e12ad`
+
+Revert sebepleri selector ile eslestirildi:
+
+| Selector | Hata | Hangi adim |
+| -------- | ---- | ---------- |
+| `0xe28e12ad` | `PayeeMismatch()` | 4 |
+| `0x7b8c8210` | `AlreadyUsed()` | 6 |
+
+Yerel akisin tamami gecti: deploy -> deposit -> mandate -> revert ->
+basarili odeme -> revert. Adim 5 `estimateGas = 66.831`, limit x1,2 = 80.197,
+gercek `gasUsed = 64.645`, `status: true`.
+
+**Yerel basari testnet kaniti DEGILDIR.** anvil Monad yapilandirmasiyla
+calisir ama gercek Monad testnet'i degildir; sira, ucretlendirme ve ag
+davranisi birebir ayni olmayabilir.
+
+### Organizator API'si - salt okunur kontroller yapildi
+
+Taban: `https://agents.devnads.com` (belge: https://devnads.com/agents)
+
+`GET /health` -> `HTTP 200` `{"status":"ok"}`
+
+`GET /v1/faucet/status/10143` -> `HTTP 200`
+
+| Alan | Deger |
+| ---- | ----- |
+| chainId / ag | 10143 / Monad Testnet |
+| enabled | `true` |
+| amountPerRequest | 1 MON |
+| rateLimits | adres 10/gun, IP 50/gun, ASN 200/gun |
+| faucet bakiyesi | ~2.950,58 MON |
+| dailyBudget | 2.000 MON/gun |
+
+**Faucet POST GONDERILMEDI.**
+
+Dikkat: IP limiti 50/gun ve ASN limiti 200/gun ortak salon agi uzerinden
+paylasilir. Salonda ayni agdaki baska ekipler de kullanirsa limit erken
+dolabilir. Fon alma isi salona varmadan, ayri bir agdan yapilmali.
+
+### Fon ihtiyaci - olculen rakamlardan hesaplandi
+
+Olculen degerler: ilk akis 1.236.873 gas limiti, her prova 319.392.
+Taban base fee (100 MON-gwei) ile:
+
+| Taraf | Kalem | Tutar |
+| ----- | ----- | ----- |
+| Sahip | deploy + deposit + ilk vekalet | ~0,1037 MON |
+| Sahip | 15 prova vekaleti (15 x 119.195) | ~0,1788 MON |
+| Sahip | kasaya yatirilan fon (geri cekilebilir) | 0,5 MON |
+| Ajan | ilk akistaki 3 deneme | ~0,0200 MON |
+| Ajan | 15 prova x 3 deneme | ~0,3003 MON |
+
+Yani **olculen gas ihtiyaci sahip icin ~0,28 MON, ajan icin ~0,32 MON**
+(kasa fonu haric). Faucet istek basina 1 MON verdigi icin her iki adrese
+BIRER istek bile bu hesaba gore yeter.
+
+Onceki rapordaki "sahip >= 2 MON / ajan >= 1 MON" ifadesi olculmus bir
+zorunluluk DEGILDI; tahmindi. Olcum sonrasi onerilen pay:
+her adrese 2 faucet istegi (2 MON). Gerekce - olcum degil, pay:
+base fee tabanin uzerine cikabilir, oncelik ucreti eklenebilir, prova
+sayisi artabilir ve salon IP'sinde limit dolarsa ikinci istek sansi olmaz.
+
+### Kaynak dogrulama plani (POST /v1/verify) - HAZIR, GONDERILMEDI
+
+`script/verify.sh` hazirlandi. Derleyici kimligi elle yazilmaz; derleme
+artifact'indaki metadata'dan OKUNUR.
+
+| Alan | Deger | Kaynak |
+| ---- | ----- | ------ |
+| chainId | 10143 | config |
+| contractAddress | deploy sonrasi `.env` | - |
+| contractName | `src/TugraVault.sol:TugraVault` | - |
+| compilerVersion | `v0.8.35+commit.47b9dedd` | `out/TugraVault.sol/TugraVault.json` metadata |
+| optimizationUsed | `true` | metadata |
+| runs | 200 | metadata |
+| evmVersion | `prague` | metadata |
+| standardJsonInput | `forge verify-contract --show-standard-json-input` | uretildi; tek kaynak dosya `src/TugraVault.sol` |
+| constructorArgs | **gonderilmez** | TugraVault constructor parametre almaz |
+
+`./script/verify.sh payload` govdeyi uretir ve GONDERMEZ.
+Gonderim yalnizca `send` alt komutuyla ve onayla olur.
+
+**Kaynak dogrulama guvenlik denetimi degildir.** Yalnizca "zincirdeki
+bytecode bu kaynaktan derlenmistir" demektir; kodun dogru veya guvenli
+oldugunu soylemez. Scriptin basinda da bu not duruyor.
+
+### Hazirlanan scriptler (hicbiri zincire/faucet'e istek gondermedi)
 
 | Dosya | Isi |
 | ----- | --- |
-| `script/config.sh` | Ortak yapilandirma; `.env` yukler, gas limitleri ve tutarlar, `TUGRA_CONFIRM` onay kapisi. Tek basina islem gondermez. |
-| `script/preflight.sh` | SALT OKUNUR. Chain ID'yi 10143 ile karsilastirir, base fee ve bakiyeleri okur, akis maliyetini hesaplar, sahip != ajan kontrolu yapar. |
-| `script/proof-flow.sh` | Alti adimin her biri ayri. `TUGRA_CONFIRM=1` olmadan gondermez. |
-| `test/Gas.t.sol` | Alti islemin gas'ini yerelde olcer. |
+| `script/config.sh` | `.env` yukler, gas politikasi, `est_limit()` (estimateGas x1,2), `TUGRA_CONFIRM` kapisi |
+| `script/preflight.sh` | SALT OKUNUR: chainId 10143, base fee, bakiyeler, ucret tahmini, faucet durumu |
+| `script/proof-flow.sh` | Alti adim ayri ayri; basarili adimlar estimateGas x1,2, revert adimlari sabit 60.000 |
+| `script/verify.sh` | `/v1/verify` govdesini uretir; gondermek ayri komut |
+| `test/Gas.t.sol` | Yurutme gas'i olcumu (ham CREATE ile) |
 
-Dogrulandi: her iki script de `.env` yokken hicbir ag cagrisi yapmadan
-cikiyor (exit 1). Sozdizimi `bash -n` ile kontrol edildi.
+Dogrulandi: dort script de `.env` yokken hicbir ag cagrisi yapmadan cikiyor.
 
-### Revert eden islemlerin ag oncesi engellenmemesi
+**`TUGRA_CONFIRM` kullanicinin onayinin yerine gecmez.** Yalnizca kaza
+eseri gonderimi engelleyen teknik bir kapidir; her adim icin ayrica onay
+alinir.
 
-Adim 4 ve 6 zincirde revert ETMELIDIR; kanit budur. `cast send` gas limiti
-verilmezse `eth_estimateGas` cagirir, bu revert'te hata dondurur ve islem
-hic gonderilmez.
+### Demo tutari - KARARLASTIRILDI
 
-Cozum: bu iki adimda islem `cast mktx` ile OFFLINE imzalanir (sabit
-`--gas-limit` verildigi icin tahmin yapilmaz), sonra `cast publish --async`
-ile yayinlanir. Ardindan `cast receipt <hash> status` okunur; beklenen `0`.
-Script `status == 1` gelirse hata verip durur.
+Demo odeme tutari **0,01 MON**. CLAUDE.md'deki "250 MON" metni sabit bir
+gereksinim degildi, ornekti.
 
-**DOGRULANMADI:** `cast mktx` + `cast publish --async` zincirinin bu Foundry
-surumunde tam olarak bu bayraklarla calistigi canli olarak denenmedi.
-Ilk gercek denemede dogrulanacak; calismazsa yedek yol `cast send --gas-limit`
-(tahmin atlanir) olacak.
+Kural: **ekrandaki butun tutarlar gercek cagridan gelir.** Ekranda yazan
+tutar, vekalette duran ve zincire giden tutarla birebir ayni olmali;
+sabit metin olarak yazilmamali.
 
-### Islem sirasi ve onay plani
-
-Her adim ayri onay ister. Toplam 6 zincir islemi.
-
-| Adim | Komut | Gonderen | Tutar | Beklenen sonuc |
-| ---- | ----- | -------- | ----- | -------------- |
-| 0 | `./script/preflight.sh` | - | - | Salt okunur, islem yok |
-| 1 | `TUGRA_CONFIRM=1 ./script/proof-flow.sh deploy` | sahip | 0 | Kontrat adresi |
-| 2 | `... deposit` | sahip | 0,05 MON | Kasa bakiyesi 0,05 |
-| 3 | `... mandate` | sahip | 0 | Vekalet #1 |
-| 4 | `... wrong-payee` | ajan | 0 | status 0, PayeeMismatch |
-| 5 | `... pay` | ajan | 0,01 MON kasadan | status 1, saglayici +0,01 |
-| 6 | `... repeat` | ajan | 0 | status 0, AlreadyUsed |
-
-Butun tx hash'leri ve explorer baglantilari kaydedilecek.
-
-### Tutar uyusmazligi - KARAR GEREKIYOR
-
-CLAUDE.md'deki demo metni ekranda "250 MON -> Bilinmeyen adres" diyor.
-Testnet faucet'inin verdigi MON miktari DOGRULANMADI ve 250 MON'un mumkun
-olmasi beklenmiyor. Ekranda gosterilen tutar zincirdeki GERCEK tutarla ayni
-olmak zorundadir; aksi halde dürüstlük kurali cignenir.
-Scriptlerdeki varsayilan: vekalet tutari 0,01 MON, kasa fonu 0,05 MON.
-Faucet miktari ogrenildikten sonra demo metni gercek tutara gore guncellenecek.
+Saglayici ve saldirgan AYRI, operator kontrolundeki adreslerdir
+(`PROVIDER_ADDRESS`, `ATTACKER_ADDRESS`). `script/preflight.sh` ikisinin
+birbirinden ve sahip/ajandan farkli oldugunu kontrol eder.
 
 ## Organizator sartlari (slaytlardan, 2026-10-24)
 
@@ -243,51 +387,50 @@ uyanik oldugu elle dogrulanacak.
 
 ## Engeller / eksikler
 
-- Barindirma hesabi (Render) acilmadi, servis deploy edilmedi.
-- `cloudflared` artik gerekli degil (barindirma kararina bakin); yalnizca
-  yerel gelistirme sirasinda telefon denemesi icin istege bagli.
-- `.env` yok; yedi degiskenin hicbiri dogrulanmadi. Kullanicinin olusturmasi
-  gerekiyor (bkz. "Kullanicidan beklenen en kucuk hazirlik").
-- Sahip/ajan cuzdanlari olusturulmadi, test MON fonlanmadi.
-- Faucet'in verdigi MON miktari **DOGRULANMADI**; demo tutari buna bagli.
-- Foundry **1.7.1**, Monad icin gereken **v1.8+** altinda. `network = "monad"`
-  kullanilamiyor; yerel gas olcumleri Monad gas modeliyle dogrulanmadi.
-  Kurulum icin onay bekleniyor.
-- `cast mktx` + `cast publish --async` zinciri canli denenmedi **DOGRULANMADI**.
+- `.env` yok; degiskenlerin hicbiri dogrulanmadi.
+- Sahip/ajan/saglayici/saldirgan cuzdanlari uretilmedi, fon alinmadi.
+- Testnet'in guncel hardfork'u **DOGRULANMADI** (canli kontrol yapilmadi;
+  yerel varsayilan MonadTen).
+- Testnet uzerinde hicbir islem denenmedi. **Yerel anvil basarisi testnet
+  kaniti sayilmaz.**
 - Anthropic API'sine tek test istegi atilmadi.
+- Barindirma hesabi (Render) acilmadi, servis deploy edilmedi.
+- `cloudflared` artik gerekli degil (barindirma kararina bakin).
 
 ## Kullanicidan beklenen en kucuk hazirlik
 
-Asama 2'nin zincir kismi bunlar olmadan baslayamaz. Hicbir gizli deger
-sohbete yazilmaz; hepsi yalnizca `.env` icinde kalir.
+Hicbir adim ozel anahtari terminale, sohbete veya log'a dusurmez.
 
-1. `cp .env.example .env`
-2. Iki AYRI cuzdan olustur (sahip ve ajan). Ornegin `cast wallet new` iki kez
-   calistirilir; ciktidaki ozel anahtarlar dogrudan `.env` icine yapistirilir,
-   terminalde birakilmaz ve sohbete kopyalanmaz.
-3. Saglayici ve saldirgan icin iki adres daha belirle (yeni cuzdan ya da
-   mevcut adresler olabilir; ikisi birbirinden ve sahip/ajandan farkli olmali).
-4. `.env` doldurulur: `MONAD_RPC_URL=https://testnet-rpc.monad.xyz`,
-   `OWNER_PRIVATE_KEY`, `AGENT_PRIVATE_KEY`, `PROVIDER_ADDRESS`,
-   `ATTACKER_ADDRESS`. (`VAULT_ADDRESS` ve `MANDATE_ID` sonra doldurulur.)
-5. https://faucet.monad.xyz adresinden SAHIP ve AJAN adreslerine test MON
-   alinir. Kaba ihtiyac: sahip >= 2 MON, ajan >= 1 MON.
-6. Doluluk kontrolu (deger yazdirmadan):
-   `for v in MONAD_RPC_URL OWNER_PRIVATE_KEY AGENT_PRIVATE_KEY PROVIDER_ADDRESS ATTACKER_ADDRESS; do grep -q "^$v=." .env && echo "$v dolu" || echo "$v BOS"; done`
-7. `./script/preflight.sh` calistirilir (salt okunur, islem gondermez).
+**1.** `./script/make-wallets.sh`
+   Dort cuzdani uretir ve dogrudan `.env`'e yazar. Ekrana YALNIZCA adresler
+   basilir. Var olan dolu alanlarin uzerine yazmaz.
+
+**2.** `.env` icine RPC'yi yaz:
+   `MONAD_RPC_URL=https://testnet-rpc.monad.xyz`
+
+**3.** Fon al - **salona varmadan, ayri bir agdan.**
+   https://faucet.monad.xyz. Istek basina 1 MON, adres basina 10/gun.
+   Yalnizca SAHIP ve AJAN adreslerine; ikiser istek onerilir.
+   Saglayici ve saldirgan adreslerine fon GEREKMEZ.
+
+**4.** Doluluk kontrolu (deger yazdirmadan):
+
+```
+for v in MONAD_RPC_URL OWNER_PRIVATE_KEY AGENT_PRIVATE_KEY PROVIDER_ADDRESS ATTACKER_ADDRESS; do
+  grep -q "^$v=." .env && echo "$v dolu" || echo "$v BOS"
+done
+```
+
+**5.** `./script/preflight.sh`
+   Salt okunur. ChainId 10143 mi, base fee ne, bakiyeler yeterli mi,
+   faucet durumu ne - hepsini gosterir. Islem gondermez.
 
 ## Siradaki adim
 
-Asama 2 - Testnet deploy + kanit akisi. Baslamadan once: Monad ag bilgilerinin
-resmi dokumandan dogrulanmasi, `.env` olusturulmasi, iki cuzdanin fonlanmasi.
-Zincire tx gonderen her adim icin ayri onay alinacak.
+Kullanici hazirligi bittikten sonra, **ayri onayla**, Asama 2'nin zincir
+kismi: `proof-flow.sh` adim 1'den 6'ya, her adim icin onay alinarak.
+Ardindan `verify.sh send`.
 
-Onay bekleyen iki karar:
-1. Foundry v1.8+ kurulsun mu? (`network = "monad"` ve gercek Monad gas modeli
-   icin gerekli; yerel gas olcumlerini kanita cevirir.)
-2. Yukaridaki "Kullanicidan beklenen en kucuk hazirlik" tamamlandiktan sonra
-   adim adim zincir islemleri baslatilsin mi?
-
-Paralel ve erken yapilmasi gerekenler (teslim sarti oldugu icin son dakikaya
-birakilmaz): public GitHub repo acilmasi ve Render hesabi + bos bir Node
+Paralel ve erken yapilmasi gerekenler (teslim sarti oldugu icin son
+dakikaya birakilmaz): public GitHub repo ve Render hesabi + bos bir Node
 servisinin bir kez deploy edilip public URL'in alinmasi.

@@ -35,22 +35,42 @@ MONAD_CHAIN_ID=10143
 EXPLORER_BASE="https://testnet.monadscan.com/tx"
 
 # ---------------------------------------------------------------------------
-# Gas limitleri.
-# Monad ucreti KULLANILAN gas'a degil gas LIMITINE gore keser
-# (docs.monad.xyz/developer-essentials/gas-on-monad), bu yuzden limitler
-# yerel olcume dayanir ve gereksiz sisirilmez.
+# Gas politikasi.
 #
-# Yerel olcum kaynagi: forge test --match-path test/Gas.t.sol -vv
-# (evm_version = prague, Foundry 1.7.1 VARSAYILAN gas modeli - Monad DEGIL)
-#   deploy 696.597 | deposit 8.846 | createMandate 97.383
-#   PayeeMismatch 2.179 | execute 39.538 | AlreadyUsed 1.875
-# Bunlara intrinsic 21.000 + calldata maliyeti eklenir, sonra pay konur.
+# Monad ucreti KULLANILAN gas'a degil gas LIMITINE gore keser
+# (docs.monad.xyz/developer-essentials/gas-on-monad). Dolayisiyla limit
+# dogrudan maliyettir; ama fazla DUSUK limit out-of-gas demektir ve beklenen
+# revert sebebini yok eder. Denge buna gore kuruldu.
+#
+# BASARILI islemler: RPC estimateGas x 1,2 (asagidaki est_limit fonksiyonu).
+# REVERT BEKLENEN islemler: estimateGas revert'te HATA verir ve islemi hic
+#   gondermez; bu yuzden sabit limit sart. Sabit deger uydurulmadi, Monad
+#   yurutme ortaminda OLCULDU.
+#
+# Olcum: anvil --network monad (Foundry 1.8.0), gercek islem makbuzlarindan
+# okunan gasUsed (intrinsic + calldata DAHIL):
+#   deploy 741.873 | deposit 22.694 | createMandate 99.329
+#   PayeeMismatch revert 42.226 | execute basarili 64.645 (estimate 66.831)
+#   AlreadyUsed revert 41.910
 # ---------------------------------------------------------------------------
-GAS_DEPLOY=${GAS_DEPLOY:-900000}   # ~772.000 tahmini + pay
-GAS_DEPOSIT=${GAS_DEPOSIT:-60000}  # ~30.000 tahmini + pay
-GAS_CREATE=${GAS_CREATE:-160000}   # ~120.500 tahmini + pay
-GAS_PAY=${GAS_PAY:-90000}          # ~61.700 tahmini + pay
-GAS_REVERT=${GAS_REVERT:-60000}    # ~24.600 tahmini + pay (revert yollari)
+
+# Revert bekleyen iki adim icin sabit limit.
+# Olculen en yuksek revert maliyeti 42.226. Secilen 60.000 = x1,42 pay.
+# Gerekce: out-of-gas revert sebebini "PayeeMismatch" yerine OOG'ye cevirir ve
+# kaniti yok eder; fazladan ~17.800 gas ise base fee tabaninda ~0,0018 MON.
+# Guvenlik tarafi ucuz, hata tarafi pahali.
+GAS_REVERT=${GAS_REVERT:-60000}
+
+# Basarili islemlerde kullanilan carpan.
+GAS_MULTIPLIER_NUM=${GAS_MULTIPLIER_NUM:-12}
+GAS_MULTIPLIER_DEN=${GAS_MULTIPLIER_DEN:-10}
+
+# estimateGas x 1,2 hesaplar. Revert edecek cagrilarda KULLANILMAZ.
+est_limit() {
+  local est
+  est=$(cast estimate --rpc-url "$MONAD_RPC_URL" "$@")
+  echo $(( est * GAS_MULTIPLIER_NUM / GAS_MULTIPLIER_DEN ))
+}
 
 # ---------------------------------------------------------------------------
 # Tutarlar. Ekranda gosterilen tutar BURADAKI tutarla ayni olmak zorundadir.

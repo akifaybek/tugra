@@ -46,11 +46,33 @@ echo "Sahip bakiyesi  : $(cast from-wei "$OWNER_BAL") MON"
 echo "Ajan bakiyesi   : $(cast from-wei "$AGENT_BAL") MON"
 echo
 
-# Butun akisin gas limiti toplami uzerinden en kotu durum maliyeti.
-TOTAL_GAS=$((GAS_DEPLOY + GAS_DEPOSIT + GAS_CREATE + GAS_PAY + 2 * GAS_REVERT))
-WORST_WEI=$((TOTAL_GAS * BASEFEE))
-echo "Akis gas limiti toplami : $TOTAL_GAS"
-echo "Mevcut base fee ile ucret: $(cast from-wei "$WORST_WEI") MON"
+# Akisin gas LIMITI toplami. Rakamlar yerel Monad ortaminda (anvil --network
+# monad) olculen gasUsed degerlerinden turetildi; basarili adimlar icin
+# olculen degerin x1,2'si, revert adimlari icin sabit GAS_REVERT.
+#   deploy 741.873 -> ~890.248   deposit 22.694 -> ~27.233
+#   createMandate 99.329 -> ~119.195   execute 66.831 (estimate) -> ~80.197
+#   iki revert adimi -> 2 x GAS_REVERT
+TOTAL_GAS=$((890248 + 27233 + 119195 + 80197 + 2 * GAS_REVERT))
+REHEARSAL_GAS=$((119195 + 80197 + 2 * GAS_REVERT))
+
+echo "Ilk kanit akisi gas limiti toplami : $TOTAL_GAS"
+echo "  mevcut base fee ile ucret        : $(cast from-wei "$((TOTAL_GAS * BASEFEE))") MON"
+echo "Her ek prova (adim 3-6)            : $REHEARSAL_GAS"
+echo "  mevcut base fee ile ucret        : $(cast from-wei "$((REHEARSAL_GAS * BASEFEE))") MON"
 echo "  (Monad gas LIMITINE gore keser; oncelik ucreti bu hesaba dahil degil.)"
+echo
+
+echo "--- Organizator faucet durumu (salt okunur) ---"
+curl -sS -m 15 https://agents.devnads.com/v1/faucet/status/10143 \
+  | python3 -c "
+import sys,json
+d=json.load(sys.stdin)
+w=lambda x:int(x)/1e18
+print('ag           :', d['name'], '(chainId', str(d['chainId'])+')')
+print('acik mi      :', d['enabled'])
+print('istek basina :', w(d['amountPerRequest']), 'MON')
+print('limitler     :', d['rateLimits'])
+print('faucet bakiye:', round(w(d['balance']),2), 'MON')
+" || echo "(faucet durumu okunamadi)"
 echo
 echo "Hazirlik kontrolu bitti. Hicbir islem gonderilmedi."
