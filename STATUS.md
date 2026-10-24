@@ -483,6 +483,75 @@ dogrulanacak.
   sorunsuz calisti ama hardfork adi ayrica sorgulanmadi.
 - Kaynak dogrulama (`POST /v1/verify`) **henuz gonderilmedi**.
 
+## Anthropic model erisimi - DOGRULANDI
+
+Tarih: 2026-10-24.
+
+### Model kimligi dogrulamasi
+
+Briften gelen `claude-haiku-5-5` kimligi **GECERLI**.
+
+Kaynak: https://platform.claude.com/docs/en/models/haiku-5-5/overview
+
+| Alan | Deger |
+| ---- | ----- |
+| Model ID (Claude API) | `claude-haiku-5-5` |
+| Durum | Active (latest) |
+| Cikis | 7 Ekim 2026 |
+| Emeklilik | 7 Ekim 2027'den once degil |
+| Baglam | 1M token |
+| Maks. cikti | 128K token |
+| Girdi fiyati | $0,10/MTok (<=100K prompt), $0,50/MTok (>100K) |
+| Cikti fiyati | $0,50/MTok (<=100K prompt), $2,50/MTok (>100K) |
+| Thinking | Adaptive, varsayilan acik |
+| Varsayilan effort | `medium` |
+| Bilgi kesimi | Haziran 2026 |
+
+**Ara adimda yapilan hata:** Yerel model tablosu 2026-06-24 onbellegindendi ve
+7 Ekim cikisli bu modeli icermiyordu; kimlik "gecersiz" diye raporlanip
+Haiku 4.5 alternatifi onerilmisti. Resmi sayfa kontrol edilince duzeltildi.
+Model bilgisi bundan sonra onbellekten degil resmi model sayfalarindan
+alinacak. (Ayni onbellek Fable 5.1 / Opus 5.5 / Sonnet 5.5'i de bilmiyordu.)
+
+### Tek minimal erisim testi
+
+Tek bir `POST /v1/messages` istegi gonderildi. Odeme araci, zincir
+baglantisi, otomatik tekrar YOK. `temperature`, `top_p`, `top_k`
+gonderilmedi (resmi sayfa bunlarin atlanmasini soyluyor).
+
+Istek: `model=claude-haiku-5-5`, `max_tokens=32`,
+tek kullanici mesaji ("Reply with exactly: OK").
+
+| Alan | Sonuc |
+| ---- | ----- |
+| HTTP | **200** |
+| id | `msg_011CgLs6YL2yMtVxSMwuizKo` |
+| model (yanitta) | `claude-haiku-5-5` |
+| stop_reason | `end_turn` |
+| input_tokens | 18 |
+| output_tokens | 4 (thinking_tokens 0) |
+| cache read / write | 0 / 0 |
+| service_tier | standard |
+| inference_geo | global |
+| speed | standard |
+| Yanit metni | `OK` |
+
+**Sonuc: erisim calisiyor.** Model kimligi dogru, anahtar gecerli, yanit
+beklendigi gibi dondu. `max_tokens=32` yeterli oldu; adaptive thinking acik
+olmasina ragmen bu istekte thinking token harcanmadi.
+
+### Asama 3 icin not
+
+- Isteklerde `temperature`, `top_p`, `top_k` **gonderilmeyecek**.
+- Adaptive thinking varsayilan acik; derinlik `output_config.effort` ile
+  ayarlanir (varsayilan `medium`). Demo'da model suresi ayri olculdugu icin
+  `low` effort degerlendirilecek - **henuz karar verilmedi.**
+- Minimum onbelleklenebilir prompt 512 token; bizim promptlarimiz muhtemelen
+  bunun altinda kalacagi icin prompt caching devreye girmeyecek.
+
+Anahtar yalnizca kimlik dogrulamada kullanildi; deger, `.env` icerigi ve
+yetkilendirme basliklari hicbir ciktiya veya loga yazilmadi.
+
 ## Organizator sartlari (slaytlardan, 2026-10-24)
 
 - Teslim 16.30; hedef 16.00.
@@ -522,7 +591,6 @@ uyanik oldugu elle dogrulanacak.
   zincirde kosulmadi; yalnizca kayitli/sahte veriyle dogrulandi.
 - `MandatePaid` olay logu `cast logs` ile cekilemedi (RPC log araligi).
 - Testnet hardfork'u **DOGRULANMADI**.
-- Anthropic API'sine tek test istegi atilmadi.
 - Barindirma hesabi (Render) acilmadi, servis deploy edilmedi.
 - Kasada 0,04 MON var; yalnizca 4 odeme daha yeter. Daha fazla prova icin
   ek deposit gerekir (ayri onay).
@@ -557,8 +625,7 @@ done
 
 ## Siradaki adim
 
-Asama 3 - ajan servisi. Zincir tarafi kanitlandi; kontrat, vekalet ve alti
-islem hazir.
+Asama 3 - ajan servisi. Zincir tarafi ve model erisimi kanitlandi.
 
-Ayrica beklemede: `verify.sh send` ile kaynak dogrulama, public GitHub repo,
+Beklemede: `verify.sh send` ile kaynak dogrulama, public GitHub repo,
 Render hesabi + bos Node servisinin bir kez deploy edilmesi.
