@@ -17,22 +17,42 @@ for N in OWNER AGENT PROVIDER ATTACKER; do
     echo "$N zaten dolu, atlandi: $(grep "^${N}_ADDRESS=" .env | cut -d= -f2)"
     continue
   fi
-  cast wallet new --json | N="$N" python3 -c '
+  cast wallet new --json | N="$N" ENV_FILE="${ENV_FILE:-.env}" python3 -c '
+# NOT: Bu blok shell icinde TEK TIRNAK ile sarili. Icinde tek tirnak
+# kullanilamaz ve ters bolu ile kacis YAPILMAZ: \" seklinde yazilan sey
+# Python kaynagina oldugu gibi gecer ve f-string icinde sozdizimi hatasi
+# verir. Bu yuzden degerler once degiskene alinir, f-string icinde
+# tirnakli anahtar erisimi yapilmaz.
 import json, os, pathlib, sys
+
 n = os.environ["N"]
-w = json.load(sys.stdin)[0]
-p = pathlib.Path(".env")
+raw = json.load(sys.stdin)
+w = raw[0] if isinstance(raw, list) else raw
+
+# cast surumleri anahtar adlarini farkli yazabiliyor; ikisini de kabul et.
+def pick(d, names):
+    for k in names:
+        if k in d:
+            return d[k]
+    sys.exit("beklenmeyen cast wallet new ciktisi: " + ",".join(sorted(d)))
+
+address = pick(w, ["address", "Address"])
+secret = pick(w, ["private_key", "privateKey", "secret_key"])
+
+p = pathlib.Path(os.environ["ENV_FILE"])
 lines = p.read_text().splitlines()
-vals = {f"{n}_PRIVATE_KEY": w["private_key"], f"{n}_ADDRESS": w["address"]}
-for var, val in vals.items():
+for var, val in ((n + "_PRIVATE_KEY", secret), (n + "_ADDRESS", address)):
+    prefix = var + "="
     for i, l in enumerate(lines):
-        if l.startswith(f"{var}="):
-            lines[i] = f"{var}={val}"
+        if l.startswith(prefix):
+            lines[i] = prefix + val
             break
     else:
-        lines.append(f"{var}={val}")
+        lines.append(prefix + val)
 p.write_text("\n".join(lines) + "\n")
-print(f"{n} adresi: {w[\"address\"]}")   # yalnizca ADRES yazdirilir
+
+# YALNIZCA adres yazdirilir; secret hicbir zaman cikti olmaz.
+print(n + " adresi: " + address)
 '
 done
 
