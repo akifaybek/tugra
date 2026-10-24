@@ -13,6 +13,7 @@
 
 import { monToWei, weiToMon } from "./units.js";
 import { buildSystemPrompt, buildUserMessage } from "./trust.js";
+import { decideGas, PREFLIGHT } from "./preflight.js";
 
 export const OUTCOME = {
   MANDATE_UNUSABLE: "mandate_unusable",
@@ -23,6 +24,14 @@ export const OUTCOME = {
   PAID: "paid",
   REJECTED_ON_CHAIN: "rejected_on_chain",
   UNCERTAIN: "uncertain",
+  PREFLIGHT_BLOCKED: "preflight_blocked",
+};
+
+/** Calistirma yollari. */
+export const MODE = {
+  MODEL: "model",                       // gercek model karari
+  CONTROLLED: "controlled",             // operator etiketli kontrollu test
+  CONTROLLED_REPEAT: "controlled_repeat", // ayni vekaletle bilerek tekrar
 };
 
 /** Veri erisimini AC diyebilecegimiz tek sonuc. */
@@ -101,12 +110,27 @@ export function createAttemptRunner({ chain, model, queue, config, budget, now =
    * @param {object} params
    * @param {string} params.mandateId  hangi vekalet denenecek (operator secer, nottan gelmez)
    * @param {object} params.untrusted  { providerDescription, audienceNote }
-   * @param {"model"|"controlled"} params.mode
+   * @param {"model"|"controlled"|"controlled_repeat"} params.mode
    * @param {object} [params.controlledCall]  mode === "controlled" ise gonderilecek ham arac girdisi
+   * @param {object} [params.replayCall]      mode === "controlled_repeat" ise yeniden gonderilecek
+   *                                          cagri. Sunucunun DAHA ONCE gonderdigi kayittan gelir;
+   *                                          istek govdesinden alinmaz.
    */
-  async function run({ mandateId, untrusted = {}, mode = "model", controlledCall = null }) {
+  async function run({
+    mandateId,
+    untrusted = {},
+    mode = MODE.MODEL,
+    controlledCall = null,
+    replayCall = null,
+  }) {
     const t = timings();
-    const label = mode === "controlled" ? "Kontrollu test" : "Gercek model karari";
+    const isRepeat = mode === MODE.CONTROLLED_REPEAT;
+    const label =
+      mode === MODE.MODEL
+        ? "Gercek model karari"
+        : isRepeat
+          ? "Kontrollu test - tekrar odeme"
+          : "Kontrollu test";
 
     // --- 1. Butce -------------------------------------------------------
     const budgetState = budget.check();
@@ -139,7 +163,12 @@ export function createAttemptRunner({ chain, model, queue, config, budget, now =
 
     const nowSeconds = BigInt(Math.floor(now() / 1000));
     const verdict = assessMandate(mandate, { agentAddress: config.agentAddress, nowSeconds });
-    if (!verdict.usable) {
+
+    // Kullanilabilir vekalet kontrolu NORMAL akista her zaman uygulanir.
+    // Yalnizca operatorun acikca tetikledigi "kontrollu tekrar" yolu bu
+    // kapiyi atlar - amaci zaten tukenmis vekaletle gercek AlreadyUsed
+    // reddini zincirde gostermektir.
+    if (!verdict.usable && !isRepeat) {
       // Vekalet zincirde dogrulanmadan guvensiz not modele VERILMEZ.
       return {
         outcome: OUTCOME.MANDATE_UNUSABLE,
@@ -163,7 +192,20 @@ export function createAttemptRunner({ chain, model, queue, config, budget, now =
     let toolInput = null;
     let modelText = null;
 
-    if (mode === "controlled") {
+    if (isRepeat) {
+      // Kontrollu tekrar: model CAGRILMAZ, guvensiz icerik KULLANILMAZ.
+      // Parametreler sunucunun daha once gonderdigi cagridan gelir.
+      if (!replayCall) {
+        return {
+          outcome: OUTCOME.INVALID_TOOL_CALL,
+          label,
+          dataUnlocked: false,
+          reason: "tekrar edilecek onceki odeme cagrisi bulunamadi",
+          timings: t,
+        };
+      }
+      toolInput = replayCall;
+    } else if (mode === MODE.CONTROLLED) {
       // Kontrollu test: model CAGRILMAZ. Cikti model karari gibi sunulmaz.
       toolInput = controlledCall;
     } else {
@@ -221,20 +263,34 @@ export function createAttemptRunner({ chain, model, queue, config, budget, now =
       call.payee.toLowerCase() === mandate.payee.toLowerCase() &&
       call.amountWei === mandate.amount;
 
-    // --- 5. Zincire gonder ----------------------------------------------
-    // Revert edecegi bilinen islemde estimateGas hata verir; o durumda
-    // sabit olculmus limit kullanilir ve islem YINE DE gonderilir.
-    let gasLimit;
-    let preflight;
-    try {
-      const est = await chain.estimateExecuteGas(call);
-      gasLimit = (est * BigInt(config.gasMultiplierNum)) / BigInt(config.gasMultiplierDen);
-      preflight = "estimate_ok";
-    } catch {
-      gasLimit = BigInt(config.gasRevertLimit);
-      preflight = "estimate_failed";
+    // --- 5. Gonderim karari ----------------------------------------------
+    // "estimateGas hata verdi" tek basina "revert edecek" DEMEK DEGILDIR.
+    // Sabit limitle gonderim yalnizca ayni cagridan alinan revert verisi
+    // ABI ile cozulup izinli bir kontrat hatasi oldugu dogrulandiginda
+    // yapilir. Timeout / baglanti / rate limit / yetersiz bakiye /
+    // cozulemeyen hata -> GONDERILMEZ.
+    const pre = await chain.preflightExecute(call);
+    const gasDecision = decideGas(pre, config);
+
+    if (!gasDecision.send) {
+      const blocked = gasDecision.preflight === PREFLIGHT.REVERT_UNEXPECTED;
+      return {
+        outcome: blocked ? OUTCOME.PREFLIGHT_BLOCKED : OUTCOME.UNCERTAIN,
+        label,
+        dataUnlocked: false,
+        sent: false,
+        preflight: gasDecision.preflight,
+        preflightError: gasDecision.errorName ?? null,
+        reason: gasDecision.reason,
+        detail: "Islem GONDERILMEDI. Otomatik tekrar YOK.",
+        modelText,
+        matchesMandate,
+        timings: t,
+      };
     }
 
+    const gasLimit = gasDecision.gasLimit;
+    const preflight = gasDecision.preflight;
     budget.record({ gas: gasLimit });
 
     const chainStarted = now();
@@ -249,6 +305,7 @@ export function createAttemptRunner({ chain, model, queue, config, budget, now =
         dataUnlocked: false,
         reason: `islem gonderilemedi: ${err.message}`,
         detail: "Islemin zincire ulasip ulasmadigi BELIRSIZ. Otomatik tekrar YOK.",
+        sent: "unknown",
         preflight,
         gasLimit: gasLimit.toString(),
         matchesMandate,
@@ -296,7 +353,9 @@ export function createAttemptRunner({ chain, model, queue, config, budget, now =
       txHash,
       gasUsed: receipt.gasUsed?.toString() ?? null,
       effectiveGasPrice: receipt.effectiveGasPrice?.toString() ?? null,
+      sent: true,
       preflight,
+      preflightError: gasDecision.errorName ?? null,
       gasLimit: gasLimit.toString(),
       matchesMandate,
       modelText,

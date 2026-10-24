@@ -35,7 +35,7 @@ test("mesru odeme: makbuz dogrulandiktan sonra basarili ve veri acilir", async (
   assert.equal(r.outcome, OUTCOME.PAID);
   assert.equal(r.dataUnlocked, true);
   assert.equal(r.matchesMandate, true);
-  assert.equal(r.preflight, "estimate_ok");
+  assert.equal(r.preflight, "ok");
   assert.equal(r.gasLimit, "110971"); // 92476 * 1.2
   assert.ok(r.txHash);
   assert.equal(chain.mandateState.used, true);
@@ -79,7 +79,8 @@ test("yanlis alici: zincire gonderilir, kontrat reddeder, veri ACILMAZ", async (
   assert.equal(chain.calls.send, 1);
   assert.ok(r.txHash);
   // estimateGas revert'te hata verdi; sabit limit kullanildi.
-  assert.equal(r.preflight, "estimate_failed");
+  assert.equal(r.preflight, "revert_confirmed");
+  assert.equal(r.preflightError, "PayeeMismatch");
   assert.equal(r.gasLimit, "60000");
   // Vekalet tukenmedi.
   assert.equal(chain.mandateState.used, false);
@@ -133,9 +134,7 @@ test("tekrar odeme zincire gonderilirse AlreadyUsed doner", async () => {
   // (yarisli durum). Sonuc yine reddedilmeli.
   const chain = makeChain();
   chain.getMandate = async () => makeMandate({ used: false });
-  chain.estimateExecuteGas = async () => {
-    throw new Error("execution reverted: AlreadyUsed");
-  };
+  chain.preflightExecute = async () => ({ kind: "revert_confirmed", errorName: "AlreadyUsed" });
   chain.sendExecute = async () => "0xdead";
   chain.waitForReceipt = async () => ({ status: "reverted", gasUsed: 41_910n });
   chain.getRevertReason = async () => ({ selector: "0x7b8c8210", name: "AlreadyUsed" });

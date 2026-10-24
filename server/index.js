@@ -29,6 +29,9 @@ const config = {
   gasMultiplierNum: 12,
   gasMultiplierDen: 10,
   payeeLabels: {},
+  // Kontrollu yollar (kontrollu test / kontrollu tekrar) yalnizca bu token
+  // ile tetiklenir. Tanimli degilse o yollar tamamen kapalidir.
+  operatorToken: process.env.OPERATOR_TOKEN || null,
 };
 
 const chain = createChain({
@@ -59,4 +62,9 @@ app.listen(port, "0.0.0.0", () => {
   console.log(`Model: ${MODEL_ID} | Zincir: ${config.chainId} | Kasa: ${chain.vaultAddress}`);
   console.log(`Ajan: ${chain.agentAddress}`);
   console.log("Kuyruk ve butce BELLEKTE; yeniden baslatmada sifirlanir.");
+  console.log(
+    config.operatorToken
+      ? "Kontrollu yollar ACIK (x-operator-token gerekli)."
+      : "Kontrollu yollar KAPALI (OPERATOR_TOKEN tanimli degil).",
+  );
 });

@@ -552,6 +552,228 @@ olmasina ragmen bu istekte thinking token harcanmadi.
 Anahtar yalnizca kimlik dogrulamada kullanildi; deger, `.env` icerigi ve
 yetkilendirme basliklari hicbir ciktiya veya loga yazilmadi.
 
+## Asama 3 - Ajan servisi (SAHTE BAGIMLILIKLARLA DOGRULANDI)
+
+Tarih: 2026-10-24. Tek Node.js/Express sureci. **Canli model cagrisi,
+canli RPC ve zincir islemi YAPILMADI.**
+
+### Dosyalar
+
+Solidity `src/` ve `test/` dizinleri doluydu; Node kodu `server/` altina
+kondu, boylece `forge` ile cakismiyor.
+
+| Dosya | Isi |
+| ----- | --- |
+| `server/units.js` | MON <-> wei donusumu. **Kayan nokta YOK**: girdi string, ara deger BigInt. `number` tipi ve us gosterimi reddedilir. |
+| `server/trust.js` | Guven siniri: sistem promptu, guvenilir/guvensiz blok ayrimi, `pay` arac semasi, guvensiz metin temizleme. |
+| `server/queue.js` | Ajan hesabi icin seri gonderim kuyrugu (nonce catismasini onler). |
+| `server/budget.js` | Deneme sayisi ve toplam gas butcesi; limit sonrasi Simulasyon. |
+| `server/core.js` | Deneme akisinin cekirdegi. Butun bagimliliklar disaridan verilir. |
+| `server/preflight.js` | Gonderim karari: revert dogrulandi mi, yoksa belirsiz mi. |
+| `server/chain.js` | viem adaptoru. **OWNER anahtarini HIC YUKLEMEZ.** |
+| `server/model.js` | Anthropic adaptoru, `claude-haiku-5-5`, tek arac `pay`. |
+| `server/server.js` | Express uclari ve veri kilidi. |
+| `server/index.js` | Giris noktasi; `PORT` uzerinden `0.0.0.0` dinler. |
+
+### Tutar birimi - acik tanim
+
+Sistemdeki tek dogru temsil **wei (BigInt)**. MON yalnizca insan arayuzu
+icindir ve her zaman **ondalik string** tasinir.
+
+`pay` aracinin `amount` parametresi **MON cinsinden ondalik string**
+(ornek `"0.01"`). Model sayi tipi gonderirse cagri bicimsel olarak
+gecersiz sayilir ve zincire gitmez - gerekce: `Number` 1e18 olceginde
+sessizce hassasiyet kaybeder. Us gosterimi de reddedilir.
+
+### Guven siniri - akis sirasi
+
+1. Butce kontrolu
+2. Vekalet **zincirden** okunur ve kullanilabilirligi dogrulanir
+3. **Ancak bundan sonra** guvensiz not modele verilir
+4. Modelin cagrisi **bicimsel** olarak dogrulanir (yetki kontrolu DEGIL)
+5. Bicimsel olarak gecerli cagri **oldugu gibi** kontrata gonderilir
+6. Yetki karari kontratin; **makbuz dogrulanmadan basari sayilmaz**
+
+Ajan, alici, tutar ve sure **yalnizca zincirden okunan vekaletten** gelir;
+guvensiz icerikten hicbiri turetilmez. Vekalet zincirde dogrulanmazsa
+guvensiz not modele **hic verilmez**.
+
+**Sessiz duzeltme YOK:** model farkli alici veya tutar isterse bu degerler
+dogru degerlerle degistirilmez ve istek engellenmez. Cagri oldugu gibi
+gonderilir, reddi kontrat verir. `matchesMandate` alani uyusup
+uyusmadigini ayrica raporlar.
+
+### Sunucunun yapamadiklari
+
+- `OWNER_PRIVATE_KEY` **okunmaz** (grep ile dogrulandi: yalnizca yorumda gecer).
+  Sunucu kendi basina vekalet olusturamaz, kasaya fon yatiramaz, para cekemez.
+- Zincire yazan tek cagri `execute`; o da kontratin vekalet kontrolune tabidir.
+- Otomatik islem tekrari yok. Belirsiz sonucta islem tekrarlanmaz.
+
+### Veri erisimi
+
+Ornek veri **yalnizca** `outcome === "paid"` oldugunda, yani makbuz
+`status === "success"` ile dogrulandiktan sonra acilir. Reddedilen,
+belirsiz, model hatasi ve RPC hatasi durumlarinda `/api/data` **403**
+doner.
+
+### Sure olcumu
+
+`modelMs` ve `chainMs` **ayri** olculur. `chainMs` gonderimden makbuza
+kadardir ve model suresini icermez; test bunu dogruluyor.
+
+### Kuyruk - bellekte oldugu acik
+
+Seri kuyruk nonce catismasini onler. `/api/state` icinde
+`queue.inMemoryOnly: true` ve "yeniden baslatmada bekleyen isler
+kaybolur" notu donulur. Butce de bellektedir.
+
+### Gonderim karari (gas politikasi) - DUZELTILDI
+
+**Onceki hatali kural:** `estimateGas` hata verdiginin TAMAMINDA sabit
+60.000 limitle gonderiliyordu. Bu yanlis: timeout, baglanti hatasi, rate
+limit ve yetersiz bakiye de ayni yere duser ve korlemesine gonderim olurdu.
+
+**Yeni kural** (`server/preflight.js`):
+
+| Preflight sonucu | Karar | Limit |
+| ---------------- | ----- | ----- |
+| `ok` - tahmin alindi | gonder | tahmin x 1,2 |
+| `revert_confirmed` + izinli hata | gonder | sabit 60.000 |
+| `revert_confirmed` + izinsiz hata | **GONDERME** (`preflight_blocked`) | - |
+| `unresolved` - timeout / baglanti / rate limit / yetersiz bakiye / cozulemeyen revert | **GONDERME** (`uncertain`) | - |
+
+Sabit limitle gonderim YALNIZCA **ayni cagridan** alinan revert verisi ABI
+ile cozulup izinli bir kontrat hatasi oldugu dogrulandiginda yapilir.
+`chain.preflightExecute` artik throw etmez; viem hata zincirinden
+`ContractFunctionRevertedError` cikarip `errorName` cozer, cozemezse
+`unresolved` doner.
+
+Izinli hatalar (demo akisinin kanit noktalari): `PayeeMismatch`,
+`AmountMismatch`, `AlreadyUsed`, `Expired`, `Revoked`, `NotAgent`.
+Izin listesi DISINDA: `InsufficientBalance`, `TransferFailed`,
+`Reentrancy`, `UnknownMandate` - bunlar cozulse bile gonderilmez.
+
+Butce yalnizca GERCEKTEN gonderilen islemde harcanir.
+
+### Uclar ve calistirma yollari
+
+| Uc | Isi |
+| -- | --- |
+| `GET /api/health` | Ag cagrisi yapmaz |
+| `GET /api/state` | Bakiyeler, kuyruk, butce, sayaclar, son 20 deneme |
+| `POST /api/attempt` | `{mandateId, untrusted, mode, controlledCall}` |
+| `GET /api/data?mandateId=` | Yalnizca acilmissa 200, yoksa 403 |
+
+Uc ayri yol var ve ekranda AYRI etiketlenir:
+
+| mode | Etiket | Model | Vekalet kontrolu | Yetki |
+| ---- | ------ | ----- | ---------------- | ----- |
+| `model` | Gercek model karari | cagrilir | **her zaman uygulanir** | acik |
+| `controlled` | Kontrollu test | cagrilmaz | uygulanir | **operator token** |
+| `controlled_repeat` | Kontrollu test - tekrar odeme | cagrilmaz | **bilerek atlanir** | **operator token** |
+
+**Kontrollu tekrar yolu.** Normal akista tukenmis vekalet zincire
+gitmeden elenir - bu kontrol KORUNDU. Gercek `AlreadyUsed` reddini
+zincirde gosterebilmek icin ayri, operatorun acikca tetikledigi bir yol
+eklendi. Guvenlik onlemleri:
+
+1. **Otomatik calismaz.** Yalnizca `mode: "controlled_repeat"` ile
+   acikca istenir.
+2. **Operator token zorunlu.** `OPERATOR_TOKEN` tanimli degilse yol
+   tamamen KAPALIDIR (HTTP 503). Tanimliysa `x-operator-token` basligi
+   eslesmezse 403.
+3. **Govdeden parametre ALMAZ.** Yalnizca sunucunun daha once GERCEKTEN
+   gonderdigi ve basarili olan odemeyi ayni parametrelerle tekrarlar.
+   Boyle bir kayit yoksa 400. Istek govdesine saldirgan adresi konsa bile
+   dikkate alinmaz - keyfi harcama ucuna donusemez.
+4. **Normal akisa sizmaz.** `mode: "model"` hicbir sekilde bu kapiyi
+   atlayamaz; govdeye token koymak da bir sey degistirmez.
+5. Model cagrilmaz, guvensiz icerik kullanilmaz, `modelMs` null kalir.
+
+### Dogrulama - 48 test, hepsi gecti
+
+`npm test` -> **48 passed, 0 failed, 0 skipped**. Gercek model ve RPC
+yerine sahte bagimliliklar kullanildi.
+
+Temel akis:
+
+| Senaryo | Dogrulanan |
+| ------- | ---------- |
+| Mesru odeme | `paid`, veri acilir, `preflight: ok`, limit tahmin x1,2 |
+| Sure ayrimi | `modelMs` ve `chainMs` ayri; chainMs model suresini icermiyor |
+| Yanlis alici | Zincire **gonderilir**, `PayeeMismatch`, veri acilmaz, vekalet tukenmez |
+| Sessiz duzeltme yok | Gonderilen alici modelin dedigi saldirgan adres |
+| Yanlis tutar | `AmountMismatch`, tutar duzeltilmiyor |
+| Model arac cagirmadi | Zincire hic gidilmez, durustce raporlanir |
+| Belirsiz makbuz | `uncertain`, veri acilmaz, **tekrar yok** |
+| Model API / RPC hatasi | Zincire gidilmez, veri acilmaz |
+| Guven siniri | Vekalet gecersizse model hic cagrilmaz |
+| Prompt ayrimi | Guvenilir blokta zincirdeki alici/tutar; saldirgan adresi YOK |
+| Butce doldu | `Simulasyon`, zincire gidilmez |
+| Bicimsel dogrulama | Sayi tipi tutar, bozuk adres, bozuk id reddedilir |
+| HTTP veri kilidi | Odeme oncesi 403, sonrasi 200; ret/belirsizlik sonrasi 403 |
+| HTTP es zamanlilik | Gonderimler seri (`start1,end1,start2,end2`) |
+
+Gonderim karari (yeni):
+
+| Senaryo | Dogrulanan |
+| ------- | ---------- |
+| `decideGas` tahmin alindi | x1,2 ile gonderilir |
+| `decideGas` izinli hata (6 hatanin hepsi) | sabit 60.000 ile gonderilir |
+| `decideGas` izinsiz hata (4 hata) | **gonderilmez** |
+| Akis: timeout | **sifir gonderim**, `uncertain`, `sent: false` |
+| Akis: baglanti hatasi | **sifir gonderim** |
+| Akis: rate limit | **sifir gonderim** |
+| Akis: yetersiz bakiye | **sifir gonderim** |
+| Akis: cozulemeyen revert | **sifir gonderim** |
+| Akis: izinsiz kontrat hatasi | **sifir gonderim**, `preflight_blocked` |
+| Akis: cozulen PayeeMismatch | **gercekten gonderilir**, sabit 60.000, zincirde reddedilir |
+| Butce muhasebesi | Gonderilmeyen islem butceden dusmez |
+
+Kontrollu tekrar:
+
+| Senaryo | Dogrulanan |
+| ------- | ---------- |
+| Tukenmis vekaletle tekrar | **Gercekten gonderilir**, `AlreadyUsed` (`0x7b8c8210`) dogrulanir, veri acilmaz |
+| Normal akis ayni durumda | Zincire gitmeden elenir (`mandate_unusable`), gonderim sayisi artmaz |
+| Model cagrisi | Kontrollu tekrarda model cagrilmaz, `modelMs` null |
+| Token yok | Her iki kontrollu yol da HTTP 503 |
+| Yanlis token | HTTP 403 |
+| Onceki basarili odeme yok | HTTP 400 |
+| Govdedeki saldirgan parametresi | Yok sayilir; kayitli cagri gonderilir |
+| Normal akista kapi atlama | Mumkun degil; govdeye token koymak etkisiz |
+
+Ayrica gercek surec `PORT=4733` ile baslatildi: `0.0.0.0` dinledigi
+dogrulandi, acilista "Kontrollu yollar KAPALI" yazdi ve token'siz
+`controlled_repeat` istegi **HTTP 503** dondu. Hicbir gizli deger loga
+dusmedi.
+
+### Canli entegrasyonda KALAN isler
+
+Bunlarin hicbiri henuz calistirilmadi:
+
+1. **Gercek model cagrisi akis icinde denenmedi.** Tek erisim testi
+   yapildi ama `pay` araciyla arac cagrisi uretip uretmedigi, arac
+   semasina uyup uymadigi ve `amount` alanini string MON olarak verip
+   vermedigi **DOGRULANMADI**. Model sayi tipi dondurursa cagri bicimsel
+   olarak gecersiz sayilip zincire gitmez - bu davranis sahte veriyle
+   test edildi ama gercek modelde gozlenmedi.
+2. **Gercek RPC ile tek bir deneme calistirilmadi.** viem adaptorunun
+   `getMandate` tuple cozumu, `debug_traceTransaction` cagrisi ve
+   ozellikle `preflightExecute`'un viem hata zincirinden
+   `ContractFunctionRevertedError` cikarip `errorName` cozmesi canli
+   olarak **DOGRULANMADI**. Cozemezse `unresolved` donup gonderim
+   yapmayacagi icin guvenli tarafa duser, ama o zaman da yanlis alici
+   kaniti uretilemez - ilk canli denemede mutlaka kontrol edilmeli.
+3. **Yeni vekalet gerekiyor.** Vekalet #1 tukenmis durumda; sunucu
+   vekalet olusturamadigi icin operator `script/proof-flow.sh mandate`
+   ile yeni vekalet uretmeli (ayri onay).
+4. `effort: "low"` secimi performans acisindan **olculmedi**.
+5. Telefon uclari, buyuk ekran UI ve not kuyrugu bu asamada YOK (Asama 4-5).
+6. Gas butcesi varsayilanlari (40 deneme / 6.000.000 gas) **tahmindir**,
+   olculmedi.
+
 ## Organizator sartlari (slaytlardan, 2026-10-24)
 
 - Teslim 16.30; hedef 16.00.
@@ -625,7 +847,9 @@ done
 
 ## Siradaki adim
 
-Asama 3 - ajan servisi. Zincir tarafi ve model erisimi kanitlandi.
+Ajan servisinin canli entegrasyonu: yeni vekalet olusturma (operator,
+ayri onay), ardindan gercek model + gercek RPC ile tek bir uctan uca
+deneme. Sonra Asama 4 (buyuk ekran) ve Asama 5 (telefon).
 
 Beklemede: `verify.sh send` ile kaynak dogrulama, public GitHub repo,
-Render hesabi + bos Node servisinin bir kez deploy edilmesi.
+Render hesabi + servisin bir kez deploy edilmesi.

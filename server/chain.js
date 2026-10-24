@@ -5,7 +5,14 @@
 // yetki AGENT anahtariyla `execute` cagirmaktir - o da kontratin
 // vekalet kontrolune tabidir.
 
-import { createPublicClient, createWalletClient, http, defineChain } from "viem";
+import {
+  createPublicClient,
+  createWalletClient,
+  http,
+  defineChain,
+  ContractFunctionRevertedError,
+} from "viem";
+import { PREFLIGHT } from "./preflight.js";
 import { privateKeyToAccount } from "viem/accounts";
 
 export const monadTestnet = defineChain({
@@ -103,14 +110,53 @@ export function createChain({ rpcUrl, agentPrivateKey, vaultAddress, feeCapWei, 
     };
   }
 
-  async function estimateExecuteGas({ mandateId, payee, amountWei }) {
-    return publicClient.estimateContractGas({
-      address: vaultAddress,
-      abi: VAULT_ABI,
-      functionName: "execute",
-      args: [mandateId, payee, amountWei],
-      account,
-    });
+  /**
+   * Gonderim oncesi siniflandirma. ASLA throw ETMEZ.
+   *
+   * Donen `kind`:
+   *   ok               -> tahmin alindi
+   *   revert_confirmed -> AYNI cagridan gelen revert verisi ABI ile cozuldu
+   *   unresolved       -> timeout / baglanti / rate limit / yetersiz bakiye /
+   *                       cozulemeyen hata. Bu durumda gonderim YAPILMAZ.
+   */
+  async function preflightExecute({ mandateId, payee, amountWei }) {
+    try {
+      const gas = await publicClient.estimateContractGas({
+        address: vaultAddress,
+        abi: VAULT_ABI,
+        functionName: "execute",
+        args: [mandateId, payee, amountWei],
+        account,
+      });
+      return { kind: PREFLIGHT.OK, gas };
+    } catch (err) {
+      // Revert verisini ayni cagrinin hata zincirinden cozmeye calis.
+      const reverted =
+        typeof err?.walk === "function"
+          ? err.walk((e) => e instanceof ContractFunctionRevertedError)
+          : null;
+
+      if (reverted instanceof ContractFunctionRevertedError) {
+        const errorName = reverted.data?.errorName ?? null;
+        if (errorName) {
+          return {
+            kind: PREFLIGHT.REVERT_CONFIRMED,
+            errorName,
+            raw: reverted.raw ?? reverted.signature ?? null,
+          };
+        }
+        // Revert oldugu belli ama ABI ile cozulemedi -> gonderme.
+        return {
+          kind: PREFLIGHT.UNRESOLVED,
+          reason: "revert verisi ABI ile cozulemedi",
+        };
+      }
+
+      return {
+        kind: PREFLIGHT.UNRESOLVED,
+        reason: classifyError(err),
+      };
+    }
   }
 
   async function sendExecute({ mandateId, payee, amountWei }, { gasLimit }) {
@@ -157,7 +203,7 @@ export function createChain({ rpcUrl, agentPrivateKey, vaultAddress, feeCapWei, 
     agentAddress: account.address,
     vaultAddress,
     getMandate,
-    estimateExecuteGas,
+    preflightExecute,
     sendExecute,
     waitForReceipt,
     getRevertReason,
@@ -165,4 +211,16 @@ export function createChain({ rpcUrl, agentPrivateKey, vaultAddress, feeCapWei, 
     agentBalance,
     explorerTx: (h) => `${monadTestnet.blockExplorers.default.url}/tx/${h}`,
   };
+}
+
+/** Ag/istemci hatalarini insan okunur tek satira indirger. */
+function classifyError(err) {
+  const name = err?.name ?? "Error";
+  const msg = String(err?.shortMessage ?? err?.message ?? "");
+  if (/timeout|timed out/i.test(msg)) return `timeout (${name})`;
+  if (/insufficient funds/i.test(msg)) return `yetersiz bakiye (${name})`;
+  if (/rate ?limit|429|too many requests/i.test(msg)) return `rate limit (${name})`;
+  if (/ECONNREFUSED|ENOTFOUND|socket|network|fetch failed/i.test(msg))
+    return `baglanti hatasi (${name})`;
+  return `${name}: ${msg.slice(0, 200)}`;
 }

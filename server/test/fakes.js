@@ -54,12 +54,15 @@ export function makeChain({ mandate = makeMandate(), overrides = {} } = {}) {
       return { ...current };
     },
 
-    async estimateExecuteGas(call) {
+    // Yeni sozlesme: ASLA throw etmez, siniflandirilmis sonuc doner.
+    async preflightExecute(call) {
       calls.estimate += 1;
       const err = decide(call);
-      // Gercek davranis: revert edecek cagrida estimateGas HATA verir.
-      if (err) throw new Error(`execution reverted: ${err}`);
-      return 92_476n;
+      if (err) {
+        // Gercek davranis: revert verisi ABI ile cozulur.
+        return { kind: "revert_confirmed", errorName: err };
+      }
+      return { kind: "ok", gas: 92_476n };
     },
 
     async sendExecute(call) {
