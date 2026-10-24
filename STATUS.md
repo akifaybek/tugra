@@ -1301,6 +1301,37 @@ Kullanim: 1 OWNER + 3 AGENT islemi (sinir 1 + 3), 1 model istegi (sinir 1).
   ve prova sonunda silindi.
 - Otomatik tekrar, replacement veya ek islem yapilmadi.
 
+## Teslim - README yazildi
+
+Tarih: 2026-10-24. Yeni ozellik, UI degisikligi, model istegi, zincir
+islemi veya deploy YAPILMADI.
+
+`README.md` mevcut gercek duruma gore yazildi. Icerik:
+
+- Problem, vekaletin dort siniri (sabit alici / tam tutar / sure / tek
+  kullanim) ve karsilik gelen kontrat hatalari
+- Monad'in yetkiyi uygulamadaki rolu; gas limitine gore ucretlendirme ve
+  revert'te estimateGas davranisinin tasarima etkisi
+- Public demo URL'si, kontrat adresi, chainId
+- Son provanin **uc islem kaniti** ve explorer baglantilari
+- **Kontrollu yanlis alici ve tekrar testlerinin model karari OLMADIGI**,
+  mesru odemenin **gercek model cagrisi** oldugu acikca yazildi
+- "Ne iddia etmiyoruz" bolumu (prompt injection, benzersizlik, yalnizca
+  Monad iddialari reddedildi)
+- Saglayicinin kurgusal, verinin uydurma, odemenin test MON oldugu
+- **Telefon not kuyrugunun uygulanmadigi**
+- Bellek ici gecmis/sayac/kuyruk/oturum/veri erisiminin yeniden
+  baslatmada kayboldugu; kalici olanin yalnizca zincir durumu oldugu
+- Demo islemlerinin **operator girisi gerektirdigi**; oturumsuz istegin
+  model ve zincire dokunmadan 401 dondugu
+- Yerel kurulum, test komutlari (sunucu 57, kontrat 52)
+- **Yalnizca ortam degiskeni adlari** ve hangilerinin gizli oldugu;
+  `OWNER_PRIVATE_KEY`'in uretim sunucusuna konmadigi
+
+Dogrulama: README taranarak hicbir belirtec, anahtar veya `.env` degerinin
+gecmedigi teyit edildi. Gecen 0x degerleri yalnizca kontrat adresi ve dort
+islem hash'i.
+
 ## Organizator sartlari (slaytlardan, 2026-10-24)
 
 - Teslim 16.30; hedef 16.00.
