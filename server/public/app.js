@@ -75,19 +75,15 @@ async function login() {
     return;
   }
   session = r.body.session;
-  $("sessionState").innerHTML =
-    'Operatör oturumu açık · <button class="btn-quiet" id="topLogout" ' +
-    'style="color:inherit;font-size:13px">çıkış</button>';
-  document.getElementById("topLogout").addEventListener("click", logout);
-  // Giris paneli kapanir; ekran demo akisina yer acar.
-  $("loginBand").hidden = true;
+  $("sessionState").textContent = "Oturum açık";
+  $("loginBand").hidden = true; // ekran demo akisina yer acar
   refreshControls();
 }
 
 async function logout() {
   await api("/api/operator/logout", { method: "POST" });
   session = null;
-  $("sessionState").textContent = "Operatör girişi yapılmadı";
+  $("sessionState").textContent = "Oturum kapalı";
   $("loginBand").hidden = false;
   $("tokenInput").value = "";
   refreshControls();
@@ -110,26 +106,26 @@ function refreshControls() {
 // ------------------------------------------------------------------- belge
 
 function paintMandate(m, serverTimeMs) {
+  const raw = $("mandateRaw");
   if (!m || m.error) {
     $("docId").textContent = mandateId ? `#${mandateId}` : "—";
     $("payeeLabel").textContent = "—";
-    $("payeeAddr").textContent = m && m.error ? "Vekâlet okunamadı." : "";
     $("amount").textContent = "—";
-    $("expiry").textContent = "—";
-    $("expiryLeft").textContent = "";
+    $("expiry").innerHTML = '—<span class="sub" id="expiryLeft"></span>';
     $("docState").hidden = true;
     $("seal").hidden = true;
+    $("sealCap").textContent = "";
+    raw.innerHTML = m && m.error ? "<dt>durum</dt><dd>vekâlet okunamadı</dd>" : "";
     return;
   }
 
   $("docId").textContent = `#${m.id}`;
   $("payeeLabel").textContent = m.payeeLabel || "Kayıtlı alıcı";
-  $("payeeAddr").textContent = m.payee;
   $("amount").textContent = fmtMon(m.amountMon);
-  $("expiry").textContent = fmtWhen(m.expiry);
 
   const expired = Number(m.expiry) * 1000 <= serverTimeMs;
-  $("expiryLeft").textContent = remaining(m.expiry, serverTimeMs);
+  $("expiry").innerHTML =
+    `${fmtWhen(m.expiry)}<span class="sub">${remaining(m.expiry, serverTimeMs)}</span>`;
 
   const st = $("docState");
   st.hidden = false;
@@ -147,20 +143,27 @@ function paintMandate(m, serverTimeMs) {
     st.dataset.k = "valid";
   }
 
+  // Ham adresler ve zaman damgalari ayrintida.
+  raw.innerHTML =
+    `<dt>alıcı</dt><dd>${m.payee}</dd>` +
+    `<dt>ajan</dt><dd>${m.agent}</dd>` +
+    `<dt>expiry</dt><dd>${m.expiry}</dd>` +
+    `<dt>used / revoked</dt><dd>${m.used} / ${m.revoked}</dd>`;
+
   // Muhur yalnizca vekalet zincirden okunabildiginde gorunur.
-  // Tukenmis VEYA iptal edilmis vekalette uzeri cizilir.
+  // Tukenmis, iptal edilmis veya suresi dolmus vekalette uzeri cizilir.
   const seal = $("seal");
   const void_ = Boolean(m.used) || Boolean(m.revoked) || expired;
   seal.hidden = false;
   seal.classList.add("stamped");
   seal.classList.toggle("cancelled", void_);
   $("sealCap").textContent = m.used
-    ? "KULLANILDI"
+    ? "Kullanıldı"
     : m.revoked
-      ? "İPTAL EDİLDİ"
+      ? "İptal edildi"
       : expired
-        ? "SÜRESİ DOLDU"
-        : "TUĞRA BASILDI";
+        ? "Süresi doldu"
+        : "Vekâlete tuğra basıldı";
 }
 
 // ------------------------------------------------------------------ deneme
@@ -196,16 +199,18 @@ function paintCall(r) {
     badge.hidden = true;
   }
 
+  const ct = $("callText");
+  ct.classList.toggle("idle", !r.requested);
   if (r.requested) {
     const known = r.matchesMandate;
-    $("callText").innerHTML =
+    ct.innerHTML =
       `${fmtMon(r.requested.amountMon)}<span class="arrow">→</span>` +
       (known
         ? "Kayıtlı sağlayıcı"
         : '<span class="unknown">Bilinmeyen adres</span>') +
       `<span class="arrow">·</span>Vekâlet #${r.requested.mandateId}`;
   } else {
-    $("callText").textContent = "Ödeme çağrısı üretilmedi";
+    ct.textContent = "Ödeme çağrısı üretilmedi";
   }
   $("observedText").textContent = observedLine(r);
 }
@@ -215,15 +220,6 @@ function paintResult(r) {
   const band = $("resultBand");
   band.classList.remove("is-waiting", "is-reject", "is-unknown");
   $("progress").hidden = true;
-
-  const meta = [];
-  if (r.txHash) {
-    meta.push(
-      `<a href="${r.explorer}" target="_blank" rel="noopener">${shortHash(r.txHash)}</a>`,
-    );
-  }
-  if (r.gasUsed) meta.push(`gas ${Number(r.gasUsed).toLocaleString("tr-TR")}`);
-  $("resultMeta").innerHTML = meta.join(" · ");
 
   let note = "";
   if (r.outcome === "paid") {
@@ -235,23 +231,40 @@ function paintResult(r) {
     chip.textContent = "Tuğra dışı ödeme reddedildi";
     band.classList.add("is-reject");
     note = r.revert?.name
-      ? `Kontrat ${r.revert.name} ile reddetti (${r.revert.selector}).`
+      ? `Kontrat ${r.revert.name} ile reddetti.`
       : "Kontrat reddetti; sebep çözülemedi.";
   } else if (r.outcome === "uncertain" || r.outcome === "preflight_blocked") {
     chip.dataset.k = "unknown";
     chip.textContent = "Belirsiz";
     band.classList.add("is-unknown");
-    note = `${r.reason} Veri açılmadı, otomatik tekrar yok.`;
+    note = "Veri açılmadı, otomatik tekrar yok.";
   } else if (r.outcome === "budget_exceeded") {
     chip.dataset.k = "unknown";
-    chip.textContent = "Simülasyon — zincire gönderilmedi";
-    note = r.reason;
+    chip.textContent = "Simülasyon";
+    note = "Zincire gönderilmedi.";
   } else {
     chip.dataset.k = "idle";
     chip.textContent = "Zincire gidilmedi";
-    note = r.reason || "";
+    note = "";
   }
   $("resultNote").textContent = note;
+
+  // Hash, gas ve teknik gerekce ayrintida.
+  const rows = [];
+  if (r.txHash) {
+    rows.push(["tx", `<a href="${r.explorer}" target="_blank" rel="noopener">${r.txHash}</a>`]);
+  }
+  if (r.gasUsed) rows.push(["gasUsed", Number(r.gasUsed).toLocaleString("tr-TR")]);
+  if (r.gasLimit) rows.push(["gasLimit", Number(r.gasLimit).toLocaleString("tr-TR")]);
+  if (r.preflight) rows.push(["preflight", r.preflight + (r.preflightError ? ` · ${r.preflightError}` : "")]);
+  if (r.revert?.selector) rows.push(["revert", `${r.revert.name ?? "?"} ${r.revert.selector}`]);
+  if (r.reason) rows.push(["gerekçe", r.reason]);
+  if (r.detail) rows.push(["not", r.detail]);
+  if (r.modelText) rows.push(["model metni", r.modelText]);
+
+  const det = $("resultDetail");
+  det.hidden = rows.length === 0;
+  $("resultRaw").innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
 
   $("tModel").textContent = fmtMs(r.timings?.modelMs);
   $("tChain").textContent = fmtMs(r.timings?.chainMs);
@@ -273,7 +286,7 @@ function paintWaiting(labelText) {
   chip.textContent = "Beklemede";
   $("resultBand").classList.remove("is-reject", "is-unknown");
   $("resultBand").classList.add("is-waiting");
-  $("resultMeta").textContent = "";
+  $("resultDetail").hidden = true;
   $("resultNote").textContent = "Zincirde kesinleşmedi. Bu sonuç başarı değildir.";
   $("progress").hidden = false;
 }
@@ -315,6 +328,7 @@ async function run(mode) {
     chip.textContent = r.status === 401 ? "Oturum gerekli" : "İstek reddedildi";
     $("progress").hidden = true;
     $("resultBand").classList.remove("is-waiting");
+    $("resultDetail").hidden = true;
     $("resultNote").textContent = r.body?.error || `HTTP ${r.status}`;
     if (r.status === 401) await logout();
     refreshControls();
@@ -371,10 +385,9 @@ async function refreshState() {
   if (!r.ok || !r.body) return;
   const s = r.body;
 
-  $("scope").textContent = `${s.scope} · chainId ${s.chainId}`;
   $("vaultBal").textContent = fmtMon(s.vaultBalanceMon);
-  $("agentBal").textContent = fmtMon(s.agentBalanceMon);
   $("fixtureBanner").hidden = !s.fixtures;
+  $("scope").textContent = `chainId ${s.chainId}`;
 
   paintMandate(s.mandate, Date.parse(s.serverTime) || Date.now());
 

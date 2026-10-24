@@ -1090,6 +1090,61 @@ kayitlar katlamanin altinda kaliyor (bilincli olarak geri planda).
 - Erisilebilirlik yalnizca odak halkasi ve `prefers-reduced-motion`
   duzeyinde; ekran okuyucu ile test edilmedi.
 
+## Asama 4b - Gorsel revizyon (Stratum yonu)
+
+Tarih: 2026-10-24. **Calisan akis yeniden yazilmadi**; yalnizca gorsel
+katman revize edildi. Backend'e dokunulmadi. Gercek model/zincir cagrisi
+yapilmadi.
+
+Stratum dosyasi **yalnizca gorsel referans** olarak kullanildi: gece tonlu
+ferah sahne, ince kesik koseli cerceve, guclu odak, olculu tipografi,
+alttaki zarif bilgi seridi. Kopyalama, emlak icerigi, asset indirme ve
+deployment talimatlari kapsam disi birakildi.
+
+### Degisenler
+
+| Once | Simdi |
+| ---- | ----- |
+| Koyu arduvaz + buyuk krem kartlar | `#080b10` zemin, kart yok; alanlar ince cizgilerle ayrilir |
+| Spectral + Plex ikilisi | IBM Plex Sans + IBM Plex Mono (Turkce tam) |
+| Kucuk cizgisel muhur (112 px) | 248 px, ozgun SVG tugra: iki beyze ilmegi, uc tug, zulfeler, sere ve saga suzulen iki kol |
+| Ham adres/hash kart icinde | `<details>` ayrintisinda |
+| Uzun aciklama metinleri | kisaltildi, teknik gerekce ayrintiya tasindi |
+| Esit agirlikli butonlar | ana eylem sicak dolgu, kontrollu testler cerceveli ikincil |
+
+Renkler: zemin `#080b10`, ana metin `#f1f0eb`, ikincil `#a8afb8`,
+sicak ton `#e3c49a` **yalnizca** ana butonda, GECERLI rozetinde ve
+kaynak noktasinda. Durum renkleri: `#8fc3a3` odendi, `#e39383` ret,
+`#a8afb8` beklemede.
+
+### Degismeyenler (dogrulandi)
+
+Muhur durumlari (Gecerli / Kullanildi / Iptal edildi / Suresi doldu ve
+uzeri cizili hal), islem dogrulugu, veri erisiminin yalnizca dogrulanmis
+basarili odemeden sonra acilmasi, operator oturumu korumasi, kaynak
+etiketleri (gercek model / kontrollu test / simulasyon), gecmis kayitlarin
+ayri tutulmasi, bekleyen islemin basari gosterilmemesi.
+
+### Yasaklananlar - tarama ile dogrulandi
+
+Video, ses dugmesi, harf karistirma, surekli parallax, `localStorage`
+**yok**. Yeni bagimlilik eklenmedi (express, viem, @anthropic-ai/sdk,
+dotenv). Toplam iki animasyon var: muhur olcegi (240 ms, yalnizca
+`transform`, opaklik hep 1) ve bekleme cubugu. **Kritik icerik hicbir
+animasyona bagli degil**; `prefers-reduced-motion` ikisini de kapatir.
+
+### Olcum
+
+| Boyut | Durum | scrollW/clientW | scrollH/clientH |
+| ----- | ----- | --------------- | --------------- |
+| 1920x1080 | odendi | 1920 / 1920 | 1080 / 1080 |
+| 1440x900 | genel | 1440 / 1440 | 900 / 900 |
+| 1440x900 | ret | 1440 / 1440 | 900 / 900 |
+| 900x900 | odendi | 900 / 900 | 1353 / 900 |
+
+Yatay tasma yok; 1920 ve 1440'ta akisin tamami kaydirmasiz siğiyor.
+`overflow: hidden` zorlanmadi.
+
 ## Organizator sartlari (slaytlardan, 2026-10-24)
 
 - Teslim 16.30; hedef 16.00.
