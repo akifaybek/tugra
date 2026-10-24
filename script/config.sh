@@ -65,6 +65,26 @@ GAS_REVERT=${GAS_REVERT:-60000}
 GAS_MULTIPLIER_NUM=${GAS_MULTIPLIER_NUM:-12}
 GAS_MULTIPLIER_DEN=${GAS_MULTIPLIER_DEN:-10}
 
+# ---------------------------------------------------------------------------
+# Ucret tavani (EIP-1559).
+#
+# Monad: price_per_gas = min(base + priority, max_price_per_gas)
+# Odenen = gas_limit * price_per_gas.
+# Tavani yuksek tutmak TEK BASINA maliyet artirmaz; yalnizca base fee
+# firlarsa ust sinir koyar. Dusuk tutmak ise islemin gecmemesine yol acar.
+#
+# Olcum (testnet, salt okunur, blok ~73.777.150):
+#   base fee          : 100 gwei  (son 5 ornek blokta sabit, taban deger)
+#   onerilen priority : 2 gwei    (eth_maxPriorityFeePerGas)
+#   cast gas-price    : 102 gwei  (base + priority)
+# Tavan tabanin 2 katina ayarlandi.
+# ---------------------------------------------------------------------------
+FEE_CAP=${FEE_CAP:-200gwei}        # maxFeePerGas
+PRIORITY_FEE=${PRIORITY_FEE:-2gwei} # maxPriorityFeePerGas
+
+# Her cast send cagrisina eklenecek ucret bayraklari.
+FEE_ARGS=(--gas-price "$FEE_CAP" --priority-gas-price "$PRIORITY_FEE")
+
 # estimateGas x 1,2 hesaplar. Revert edecek cagrilarda KULLANILMAZ.
 est_limit() {
   local est

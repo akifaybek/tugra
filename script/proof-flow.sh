@@ -60,7 +60,7 @@ send_expecting_revert() {
   local key="$1"; shift
   local out hash
   set +e
-  out=$(cast send "${RPC[@]}" --private-key "$key" --gas-limit "$GAS_REVERT" "$@" --json 2>&1)
+  out=$(cast send "${RPC[@]}" "${FEE_ARGS[@]}" --private-key "$key" --gas-limit "$GAS_REVERT" "$@" --json 2>&1)
   set -e
   hash=$(printf '%s' "$out" | tx_hash 2>/dev/null || true)
   if [[ -z "$hash" ]]; then
@@ -74,8 +74,14 @@ send_expecting_revert() {
 case "$STEP" in
 
   1|deploy)
-    confirm_gate "TugraVault deploy (sahip, gas: estimateGas x1,2)"
-    forge create src/TugraVault.sol:TugraVault "${RPC[@]}" "${OWNER[@]}" --broadcast
+    OWNER_ADDRESS=$(cast wallet address --private-key "$OWNER_PRIVATE_KEY")
+    # Monad ucreti LIMITE gore kestigi icin deploy limiti de acikca verilir;
+    # forge create'in kendi tahminine birakilmaz.
+    INITCODE=$(python3 -c "import json;print(json.load(open('out/TugraVault.sol/TugraVault.json'))['bytecode']['object'])")
+    LIM=$(est_limit --from "$OWNER_ADDRESS" --create "$INITCODE")
+    confirm_gate "TugraVault deploy (sahip, gas limiti $LIM)"
+    forge create src/TugraVault.sol:TugraVault "${RPC[@]}" "${OWNER[@]}" "${FEE_ARGS[@]}" \
+      --gas-limit "$LIM" --broadcast
     echo
     echo "Ciktidaki 'Deployed to' adresini .env icine VAULT_ADDRESS olarak yazin."
     ;;
@@ -85,7 +91,7 @@ case "$STEP" in
     OWNER_ADDRESS=$(cast wallet address --private-key "$OWNER_PRIVATE_KEY")
     LIM=$(est_limit --from "$OWNER_ADDRESS" --value "$VAULT_FUNDING" "$VAULT_ADDRESS" "deposit()")
     confirm_gate "Kasaya $VAULT_FUNDING yatir (sahip, gas limiti $LIM)"
-    report "$(cast send "${RPC[@]}" "${OWNER[@]}" --gas-limit "$LIM" \
+    report "$(cast send "${RPC[@]}" "${OWNER[@]}" "${FEE_ARGS[@]}" --gas-limit "$LIM" \
       --value "$VAULT_FUNDING" "$VAULT_ADDRESS" "deposit()" --json | tx_hash)" "true"
     echo "Kasa bakiyesi: $(cast from-wei "$(cast balance "${RPC[@]}" "$VAULT_ADDRESS")") MON"
     ;;
@@ -100,7 +106,7 @@ case "$STEP" in
           "$AGENT_ADDRESS" "$PROVIDER_ADDRESS" "$MANDATE_AMOUNT_WEI" "$EXPIRY")
     LIM=$(est_limit --from "$OWNER_ADDRESS" "${ARGS[@]}")
     confirm_gate "Vekalet olustur: $MANDATE_AMOUNT_ETHER MON -> $PROVIDER_ADDRESS, son $EXPIRY (gas limiti $LIM)"
-    report "$(cast send "${RPC[@]}" "${OWNER[@]}" --gas-limit "$LIM" "${ARGS[@]}" --json | tx_hash)" "true"
+    report "$(cast send "${RPC[@]}" "${OWNER[@]}" "${FEE_ARGS[@]}" --gas-limit "$LIM" "${ARGS[@]}" --json | tx_hash)" "true"
     echo "Vekalet sayisi: $(cast call "${RPC[@]}" "$VAULT_ADDRESS" "mandateCount()(uint256)")"
     echo "Bu kimligi .env icine MANDATE_ID olarak yazin."
     ;;
@@ -121,7 +127,7 @@ case "$STEP" in
     ARGS=("$VAULT_ADDRESS" "$EXEC_SIG" "$MANDATE_ID" "$PROVIDER_ADDRESS" "$MANDATE_AMOUNT_WEI")
     LIM=$(est_limit --from "$AGENT_ADDRESS" "${ARGS[@]}")
     confirm_gate "MESRU odeme (ajan) -> basarili beklenir, gas limiti $LIM"
-    report "$(cast send "${RPC[@]}" "${AGENT[@]}" --gas-limit "$LIM" "${ARGS[@]}" --json | tx_hash)" "true"
+    report "$(cast send "${RPC[@]}" "${AGENT[@]}" "${FEE_ARGS[@]}" --gas-limit "$LIM" "${ARGS[@]}" --json | tx_hash)" "true"
     echo "Kasa      : $(cast from-wei "$(cast balance "${RPC[@]}" "$VAULT_ADDRESS")") MON"
     echo "Saglayici : $(cast from-wei "$(cast balance "${RPC[@]}" "$PROVIDER_ADDRESS")") MON"
     ;;
