@@ -19,26 +19,64 @@ for N in OWNER AGENT PROVIDER ATTACKER; do
   fi
   cast wallet new --json | N="$N" ENV_FILE="${ENV_FILE:-.env}" python3 -c '
 # NOT: Bu blok shell icinde TEK TIRNAK ile sarili. Icinde tek tirnak
-# kullanilamaz ve ters bolu ile kacis YAPILMAZ: \" seklinde yazilan sey
-# Python kaynagina oldugu gibi gecer ve f-string icinde sozdizimi hatasi
-# verir. Bu yuzden degerler once degiskene alinir, f-string icinde
-# tirnakli anahtar erisimi yapilmaz.
+# kullanilamaz ve ters bolu ile kacis YAPILMAZ: ters bolu + tirnak yazilirsa
+# Python kaynagina oldugu gibi gecer ve sozdizimi hatasi verir.
+#
+# Beklenen cikti (Foundry 1.8.0 ile DOGRULANDI):
+#   {"schema_version":1,"success":true,
+#    "data":[{"address":"0x..","public_key":"0x..","private_key":"0x.."}],
+#    "errors":[],"warnings":[]}
+# Zarf kurulu binary ile uretilip dogrulandi (ornegin: cast sig ... --json).
+# data icerigi foundry-rs/foundry v1.8.0 kaynagindan dogrulandi:
+#   crates/cast/src/cmd/wallet/mod.rs -> json!({address, public_key, private_key})
+# Zarfsiz (eski) bicim de kabul edilir.
+#
+# Dosyaya YALNIZCA tum alanlar dogrulandiktan sonra yazilir.
 import json, os, pathlib, sys
 
 n = os.environ["N"]
-raw = json.load(sys.stdin)
-w = raw[0] if isinstance(raw, list) else raw
 
-# cast surumleri anahtar adlarini farkli yazabiliyor; ikisini de kabul et.
+def bail(msg):
+    # Yalnizca tanilama; ozel anahtar asla yazdirilmaz.
+    sys.exit(n + ": " + msg)
+
+text = sys.stdin.read()
+if not text.strip():
+    bail("cast wallet new hic cikti vermedi (stderr i kontrol edin)")
+try:
+    raw = json.loads(text)
+except ValueError:
+    bail("cast wallet new ciktisi JSON degil")
+
+# --- zarfi soy ---
+if isinstance(raw, dict) and "schema_version" in raw:
+    if raw.get("success") is not True:
+        errs = raw.get("errors") or ["(ayrinti yok)"]
+        bail("cast basarisiz dondu: " + "; ".join(str(e) for e in errs))
+    payload = raw.get("data")
+else:
+    payload = raw
+
+if isinstance(payload, list):
+    if not payload:
+        bail("cast ciktisindaki data listesi bos")
+    w = payload[0]
+else:
+    w = payload
+if not isinstance(w, dict):
+    bail("cast ciktisindaki data beklenen nesne degil")
+
 def pick(d, names):
     for k in names:
-        if k in d:
-            return d[k]
-    sys.exit("beklenmeyen cast wallet new ciktisi: " + ",".join(sorted(d)))
+        v = d.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    bail("eksik alan; gelen alanlar: " + ",".join(sorted(d)))
 
 address = pick(w, ["address", "Address"])
 secret = pick(w, ["private_key", "privateKey", "secret_key"])
 
+# --- dogrulama bittikten SONRA yaz ---
 p = pathlib.Path(os.environ["ENV_FILE"])
 lines = p.read_text().splitlines()
 for var, val in ((n + "_PRIVATE_KEY", secret), (n + "_ADDRESS", address)):
