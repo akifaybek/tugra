@@ -46,7 +46,7 @@ EXEC_SIG="execute(uint256,address,uint256)"
 tx_hash() { python3 -c "import sys,json;print(json.load(sys.stdin)['transactionHash'])"; }
 
 report() {
-  local hash="$1" status gas
+  local hash="$1" beklenen="$2" status gas
   status=$(cast receipt "${RPC[@]}" "$hash" status)
   gas=$(cast receipt "${RPC[@]}" "$hash" gasUsed)
   show_tx "$hash"
