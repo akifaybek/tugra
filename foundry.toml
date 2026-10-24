@@ -8,9 +8,15 @@ libs = ["dependencies"]
 # (Onbellekteki 0.8.20 yalnizca x86_64 oldugu icin bu makinede calismiyor.)
 solc = "0.8.35"
 
-# Monad testnet'in destekledigi EVM surumu henuz resmi dokumandan DOGRULANMADI.
-# En genis uyum icin "paris" secildi (PUSH0 yok). Asama 2'de dogrulanacak.
+# Monad EVM'i Fusaka fork'una uyar; Osaka fork'una kadarki butun opcode ve
+# precompile'lar desteklenir (docs.monad.xyz). Resmi Monad dokumani Hardhat
+# icin evmVersion = "prague" onerir; solc hedefi buna hizalandi.
+# Dogrulandi: forge build + forge test prague ile gecti (52/52).
 evm_version = "prague"
+
+# NOT: Monad'in kendi gas modelini YEREL testlerde uygulamak icin Foundry
+# v1.8+ ve `network = "monad"` gerekir. Yerel surum 1.7.1 oldugu icin bu satir
+# henuz eklenmedi; yerel gas olcumleri Monad gas modeliyle DOGRULANMADI.
 
 optimizer = true
 optimizer_runs = 200
