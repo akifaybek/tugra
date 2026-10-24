@@ -128,10 +128,9 @@ Proje kararı kesin: Tuğra. Yeni fikir veya özellik önerme.
 - Sen hiçbir git komutunu çalıştırma. Commit ve push işlemlerini yalnızca ben yapacağım.
 - Her adım sonunda “COMMIT ZAMANI” bloğu ver:
     1. Değişen dosyaları ve doğrulama sonucunu kısaca açıkla.
-    2. Terminale kopyalayıp yapıştıracağım git komutlarını sırayla ver: durum kontrolü, yalnızca ilgili dosyaları ekleme, staged değişiklikleri inceleme ve açıklayıcı mesajla commit.
+    2. Terminale kopyalayıp yapıştıracağım git komutlarını ver: yalnızca ilgili dosyaları ekleme ve açıklayıcı mesajla commit. İnceleme komutu (git status, git diff) ekleme.
 - Dosya eklerken açık dosya yolları kullan. Asla git add . veya git add -A verme.
 - .env, private key, API key veya başka gizli bilgi içeren dosyalar commit’e eklenmez.
-- İnceleme komutları ile commit komutunu ayrı bloklarda ver; önce inceleyip sonra commit’i çalıştıracağım.
 - Commit mesajını sen hazırla; komutları çalıştırmak ve commit’i atmak benim görevim.
 - Push komutunu yalnızca istediğimde ver; kendin çalıştırma.
 - .env dosyasını okuma veya içeriğini yazdırma. Gerekli değişkenin doluluk kontrolü yalnızca şu biçimde yapılır: grep -q "^X=." .env && echo dolu
