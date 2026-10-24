@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tuğra — işlem ekranı</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;600&family=Spectral:wght@300;500&display=swap&subset=latin,latin-ext" rel="stylesheet" />
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+<div class="shell">
+
+  <header class="topbar">
+    <span class="wordmark">TUĞRA</span>
+    <span class="scope" id="scope">—</span>
+    <span class="spacer"></span>
+    <div class="balances">
+      <span>Kasa <b id="vaultBal">—</b></span>
+      <span>Ajan <b id="agentBal">—</b></span>
+      <span class="session-state" id="sessionState">Operatör girişi yapılmadı</span>
+    </div>
+  </header>
+
+  <div class="fixture-banner" id="fixtureBanner" hidden>
+    TEST VERİSİ — bu ekrandaki değerler sahte bağımlılıklardan geliyor, canlı zincir değil.
+  </div>
+
+  <main class="main">
+
+    <!-- ---------------------------------------------------------- belge -->
+    <section class="doc" aria-labelledby="docTitle">
+      <h1 id="docTitle">VEKÂLET <span id="docId">—</span></h1>
+      <div class="doc-rule"></div>
+
+      <div class="field">
+        <div class="label">Alıcı</div>
+        <div class="val" id="payeeLabel">—</div>
+        <div class="sub" id="payeeAddr"></div>
+      </div>
+
+      <div class="field">
+        <div class="label">Tam tutar</div>
+        <div class="val amount" id="amount">—</div>
+      </div>
+
+      <div class="field">
+        <div class="label">Son geçerlilik</div>
+        <div class="val" id="expiry">—</div>
+        <div class="sub" id="expiryLeft"></div>
+      </div>
+
+      <div class="field">
+        <div class="label">Kullanım</div>
+        <div class="val">Tek kullanım</div>
+        <span class="doc-state" id="docState" hidden></span>
+      </div>
+
+      <div class="seal" id="seal" hidden>
+        <svg viewBox="0 0 120 86" role="img" aria-labelledby="sealTitle">
+          <title id="sealTitle">Tuğra mührü</title>
+          <g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+            <path d="M14 72 V30 a10 10 0 0 1 20 0 V72" />
+            <path d="M34 72 V36 a9 9 0 0 1 18 0 V72" />
+            <path d="M52 72 V26 a11 11 0 0 1 22 0 V72" />
+            <path d="M74 72 c0-26 6-40 18-40 s14 12 14 24" />
+            <path d="M18 60 q44 -22 88 -4" stroke-width="1.6" />
+            <path d="M10 78 h100" stroke-width="1.2" />
+          </g>
+          <line class="strike halo" x1="4" y1="82" x2="116" y2="12"
+                stroke="#f2f1ec" stroke-width="7" stroke-linecap="round" />
+          <line class="strike" x1="4" y1="82" x2="116" y2="12"
+                stroke="currentColor" stroke-width="2.6" stroke-linecap="round" />
+        </svg>
+        <div class="seal-cap" id="sealCap">TUĞRA BASILDI</div>
+      </div>
+    </section>
+
+    <!-- ----------------------------------------------------------- şerit -->
+    <div class="lane">
+
+      <!-- giriş -->
+      <section class="login" id="loginBand">
+        <div class="label">Operatör girişi</div>
+        <p class="hint" style="margin:0">
+          Model çağrısı ve zincir işlemi başlatan bütün yollar sunucuda oturum ister.
+          Belirteç yalnızca bu istekte gönderilir; tarayıcıda saklanmaz.
+        </p>
+        <input type="password" id="tokenInput" placeholder="Operatör belirteci"
+               autocomplete="off" aria-label="Operatör belirteci" />
+        <div class="controls">
+          <button class="btn-primary" id="loginBtn">Giriş yap</button>
+        </div>
+        <div class="err" id="loginErr" role="status"></div>
+      </section>
+
+      <!-- güvensiz içerik -->
+      <section class="band untrusted">
+        <div class="label">Güvensiz içerik — doğrulanmadı</div>
+        <textarea id="providerDesc" rows="1"
+          placeholder="Sağlayıcı açıklaması"></textarea>
+        <textarea id="audienceNote" rows="2" style="margin-top:10px"
+          placeholder="Seyirci / operatör notu"></textarea>
+        <p class="hint">
+          Bu metin modele okutulur. Alıcı, tutar ve süre buradan türetilmez;
+          hepsi zincirdeki vekâletten gelir. Not girmek denemeyi başlatmaz.
+        </p>
+
+        <div class="controls control-bar">
+          <button class="btn-primary" id="runModel" disabled>Denemeyi çalıştır</button>
+          <button class="btn-outline" id="runControlled" disabled>◻ Kontrollü test</button>
+          <button class="btn-outline" id="runRepeat" disabled>◻ Kontrollü tekrar</button>
+          <span class="hint" id="controlHint" style="margin:0"></span>
+        </div>
+      </section>
+
+      <!-- istenen ödeme -->
+      <section class="band" id="callBand">
+        <div class="source" id="sourceBadge" data-k="model" hidden>
+          <span class="dot"></span><span id="sourceText">GERÇEK MODEL KARARI</span>
+        </div>
+        <div class="label" id="callLabel">İstenen ödeme</div>
+        <div class="call" id="callText">—</div>
+        <div class="observed" id="observedText">Henüz deneme çalıştırılmadı.</div>
+      </section>
+
+      <!-- zincir sonucu -->
+      <section class="band" id="resultBand">
+        <div class="label">Zincir sonucu</div>
+        <div class="result-row">
+          <span class="chip" id="resultChip" data-k="idle">Deneme yok</span>
+          <span class="result-meta" id="resultMeta"></span>
+        </div>
+        <div class="progress" id="progress" hidden><i></i></div>
+        <div class="observed" id="resultNote" style="margin-top:12px"></div>
+      </section>
+
+      <!-- veri -->
+      <section class="band" id="dataBand">
+        <div class="label">Veri erişimi</div>
+        <div class="data-locked" id="dataLocked">
+          Kapalı. Örnek veri yalnızca doğrulanmış başarılı yetkili ödemeden sonra açılır.
+        </div>
+        <div class="data-rows" id="dataRows" hidden></div>
+      </section>
+
+    </div>
+  </main>
+
+  <footer class="bottombar">
+    <span>Model <b id="tModel">—</b></span>
+    <span>Zincir <b id="tChain">—</b></span>
+    <span>Zincirde revert eden tx <b id="cRevert">0</b></span>
+    <span>Simülasyon <b id="cSim">0</b></span>
+    <span>Belirsiz <b id="cUnknown">0</b></span>
+  </footer>
+
+  <section class="history">
+    <div class="label">Geçmiş prova kayıtları</div>
+    <ol id="historyList"><li class="empty">Kayıt yok.</li></ol>
+  </section>
+
+</div>
+<script src="/app.js"></script>
+</body>
+</html>

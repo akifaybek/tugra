@@ -957,6 +957,139 @@ Kullanim: 1 OWNER + 1 AGENT islemi (sinir 1 + 3), 1 model istegi (sinir 2).
    raporlama asamasinda patladi. **Duzeltildi**, ama duzeltilmis hali
    canli kosulmadi.
 
+## Asama 4 - Masaustu demo ekrani (SAHTE VERIYLE DOGRULANDI)
+
+Tarih: 2026-10-24. Mevcut Express + duz HTML/JS yapisi korundu; yeni
+framework, derleme adimi veya tanitim sayfasi YOK.
+**Bu calismada gercek model istegi veya zincir islemi GONDERILMEDI.**
+
+### Guvenlik duzeltmesi - oturum tabanli yetki
+
+Onceki durumda `mode: "model"` yetkisizdi; yalnizca kontrollu yollar
+korunuyordu. Artik **model cagrisi veya zincir islemi baslatan HER yol**
+sunucuda oturum ister.
+
+- `POST /api/operator/login` - operator belirteci bir kez gonderilir,
+  sunucu kisa omurlu bir **oturum kimligi** doner. Uzun omurlu
+  `OPERATOR_TOKEN` tarayiciya HIC gonderilmez.
+- Istemci oturum kimligini **yalnizca JS degiskeninde** tutar.
+  localStorage, cerez, URL ve log kullanilmaz; sayfa yenilenince kaybolur.
+- `POST /api/attempt` -> `requireOperator` (mode ayrimi yapmadan).
+- Karsilastirma `crypto.timingSafeEqual` ile.
+- `OPERATOR_TOKEN` tanimli degilse giris de denemeler de **503**.
+
+**Yetkisiz erisim dogrulamasi (canli calistirildi):**
+
+| Istek | Sonuc |
+| ----- | ----- |
+| `mode: model` oturumsuz | **HTTP 401** |
+| `mode: controlled` oturumsuz | **HTTP 401** |
+| `mode: controlled_repeat` oturumsuz | **HTTP 401** |
+| Uydurma oturum kimligi | **HTTP 401** |
+| Yanlis belirtecle giris | **HTTP 401** |
+| Dogru belirtecle giris + deneme | HTTP 200 |
+
+Reddedilen isteklerden SONRA sunucu durumu: `attempts: 0`, butun sayaclar
+sifir, `mandate.used: false`, `unlockedMandates: []`. Yani model
+cagrilmadi ve zincire gidilmedi - yalnizca buton gizlenmedi.
+
+Belirtec sizintisi kontrolu: statik dosyalarda gecmiyor, sunucu logunda
+**0 kez** geciyor, istemcide `localStorage`/`cookie` kullanimi yok.
+
+Birim testlerde de ayrica kapsandi (51/51 gecti): oturumsuz cagrida
+`model.seen.length === 0` ve `chain.calls.getMandate === 0`.
+
+### Ekran
+
+`server/public/` altinda `index.html`, `styles.css`, `app.js`.
+Express `express.static` ile servis ediyor.
+
+Akis sirasi soldan saga, yukaridan asagiya:
+**vekalet belgesi -> guvensiz icerik -> istenen odeme -> zincir sonucu ->
+veri erisimi**, altta sureler ve sayaclar, en altta gecmis kayitlar.
+
+- Koyu calisma yuzeyi (`#1c242b`) uzerinde acik vekalet belgesi (`#f2f1ec`).
+- Spectral (belge) + IBM Plex Sans (arayuz) + IBM Plex Mono (zincir verisi),
+  `latin-ext` alt kumesiyle; Turkce karakterler tam.
+- Olculu tugra muhru; tek animasyon (240 ms), `prefers-reduced-motion`
+  saygili.
+
+**Vekalet durumlari ayri gosteriliyor:** Gecerli / **Kullanildi** (dolu
+siyah rozet) / **Iptal edildi** (kirmizi cerceveli rozet) / Suresi doldu.
+Muhur bu uc son durumda uzeri cizili gorunur ve basligi degisir.
+
+**Gozlenen cagri anlatiliyor, ic muhakeme DEGIL:** "Istenen odeme
+vekaletle esleşiyor" / "esleşmiyor". "Model saldiriyi anladi" turu iddia
+yok.
+
+**Bekleyen islem basari gosterilmiyor:** notr "Beklemede" rozeti, belirsiz
+ilerleme cubugu ve "Zincirde kesinlesmedi. Bu sonuc basari degildir."
+satiri. Bekleyen ogeler **soldurulmuyor**; ikincil metin `#4b545e`,
+rozetler ayri zemin/metin ciftleriyle okunur kaliyor.
+
+**Kaynak ayrimi:** dolu daire = GERCEK MODEL KARARI, ici bos kare =
+KONTROLLU TEST, noktali = SIMULASYON. Gecmis kayitlar kagit uzerinde
+degil zeminde, kucuk ve soluk - canli denemeyle ayni yuzeyi paylasmiyor.
+
+Butun degerler `/api/state` ve `/api/attempt`'ten gelir; hicbir tarih,
+bakiye, sure, sayac veya hash HTML'e sabit yazilmadi.
+
+### Sahte veri sunucusu
+
+`server/dev-fixtures.js` - gercek model/RPC kullanmaz, `fixtures: true`
+doner ve ekranda **"TEST VERISI"** bandi cikar. `npm start` bu dosyayi
+kullanmaz.
+
+Senaryolar: `paid`, `reject`, `uncertain`, `notool`, `used`, `revoked`,
+istege bagli `SLOW=1` (bekleme durumu icin).
+
+### Ekran boyutu kontrolleri
+
+Chrome DevTools Protocol ile headless olcum (ek paket kurulmadi):
+
+| Boyut | Durum | scrollW/clientW | scrollH/clientH |
+| ----- | ----- | --------------- | --------------- |
+| 1920x1080 | odendi | 1920 / 1920 | 1080 / 1080 |
+| 1440x900 | odendi | 1440 / 1440 | 965 / 900 |
+| 1440x900 | reddedildi | 1440 / 1440 | 964 / 900 |
+| 1440x900 | beklemede | 1440 / 1440 | 982 / 900 |
+| 1440x900 | iptal edildi | 1440 / 1440 | 914 / 900 |
+| 900x900 | odendi | 900 / 900 | 1502 / 900 |
+
+**Yatay tasma hicbir boyutta yok** (`scrollW === clientW`).
+`overflow: hidden` zorlanmadi; dar ekranda icerik tek kolona iner ve
+dikey akar, kirpilmaz. 1920x1080'de akisin tamami kaydirmasiz sigiyor;
+1440x900'de veri erisimi dahil ana akis gorunuyor, yalnizca gecmis
+kayitlar katlamanin altinda kaliyor (bilincli olarak geri planda).
+
+### Ekran goruntusunden duzeltilen sorunlar
+
+1. `[hidden]` niteligi `display: inline-flex` tanimlayan siniflar
+   tarafindan eziliyordu; kaynak rozeti deneme calistirilmadan
+   gorunuyordu. `[hidden] { display: none !important }` eklendi.
+2. Dikey akis 1080'e sigmiyordu (1143 px). Giris paneli oturum acilinca
+   kapaniyor, denetimler guvensiz icerik kartina tasindi, bosluk olcegi
+   sikistirildi -> 1080 px.
+3. Muhrun iptal cizgisi kemerlerin uzerinde secilmiyordu; kagit renginde
+   hale eklendi.
+4. Iptal edilmis vekalette muhur hala "TUGRA BASILDI" diyordu; artik
+   uzeri cizilip "IPTAL EDILDI" yaziyor.
+5. Fixtures etiketi ASCII'ydi ("Kayitli saglayici"); Turkce duzeltildi.
+
+### Bu asamada YAPILMAYANLAR
+
+- Telefon not kuyrugu (`/api/note`, bekleme suresi, filtre, operator
+  secimi) uygulanmadi - Asama 5.
+- Not secimi otomatik deneme baslatmiyor; zaten boyle bir mekanizma yok.
+- Ekran canli veriyle **hic calistirilmadi**; butun dogrulama sahte
+  bagimliliklarla yapildi.
+- Gercek model ciktisinin arac semasina uymasi UI uzerinden
+  **dogrulanmadi**.
+- Kontrollu test butonu saldirgan adresini `/api/state`'ten alir; bu yol
+  canli denenmedi.
+- Erisilebilirlik yalnizca odak halkasi ve `prefers-reduced-motion`
+  duzeyinde; ekran okuyucu ile test edilmedi.
+
 ## Organizator sartlari (slaytlardan, 2026-10-24)
 
 - Teslim 16.30; hedef 16.00.

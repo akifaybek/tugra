@@ -4,6 +4,9 @@
 // Bu asamada UI YOK - yalnizca JSON uclari.
 
 import express from "express";
+import crypto from "node:crypto";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createAttemptRunner, OUTCOME, MODE } from "./core.js";
 import { weiToMon } from "./units.js";
 
@@ -23,6 +26,10 @@ export function createApp({ chain, model, queue, config, budget, now = Date.now 
   const app = express();
   app.use(express.json({ limit: "32kb" }));
 
+  // Duz HTML/JS ekran. Derleme adimi yok.
+  const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "public");
+  app.use(express.static(publicDir));
+
   // Veri erisimi YALNIZCA dogrulanmis basarili odemeyle acilir.
   const unlocked = new Set(); // mandateId -> acildi
 
@@ -33,25 +40,75 @@ export function createApp({ chain, model, queue, config, budget, now = Date.now 
 
   const attempts = [];
 
-  /**
-   * Kontrollu yollar (kontrollu test ve kontrollu tekrar) yalnizca
-   * operator tarafindan tetiklenebilir. Token tanimli degilse bu yollar
-   * tamamen KAPALIDIR - halka acik yetkisiz harcama ucu olusmaz.
-   */
-  function operatorAllowed(req) {
-    if (!config.operatorToken) return { ok: false, status: 503, error: "kontrollu yollar kapali (operator token tanimli degil)" };
-    const given = req.get("x-operator-token");
-    if (!given || given !== config.operatorToken) {
-      return { ok: false, status: 403, error: "operator yetkisi gerekli" };
-    }
-    return { ok: true };
+  // ---------------------------------------------------------------------
+  // Operator oturumu
+  //
+  // Uzun omurlu OPERATOR_TOKEN tarayiciya HIC gonderilmez. Operator token'i
+  // bir kez gonderir, sunucu karsiliginda kisa omurlu bir OTURUM KIMLIGI
+  // doner. Istemci bunu yalnizca bellekte (JS degiskeni) tutar; localStorage,
+  // cerez, URL ve log kullanilmaz. Sayfa yenilenince oturum kaybolur.
+  //
+  // MODEL CAGRISI VEYA ZINCIR ISLEMI BASLATAN HER YOL bu oturumu ister -
+  // `mode: "model"` dahil. Butonu gizlemek yeterli degildir.
+  // ---------------------------------------------------------------------
+  const sessions = new Map(); // oturumId -> sonGecerlilik (ms)
+  const SESSION_TTL_MS = Number(config.sessionTtlMs ?? 2 * 60 * 60 * 1000);
+
+  function sweepSessions(nowMs) {
+    for (const [id, exp] of sessions) if (exp <= nowMs) sessions.delete(id);
   }
+
+  function sameSecret(a, b) {
+    const ba = Buffer.from(String(a));
+    const bb = Buffer.from(String(b));
+    if (ba.length !== bb.length) return false;
+    return crypto.timingSafeEqual(ba, bb);
+  }
+
+  /** Oturum zorunlu. Gecersizse istek model ve zincire HIC dokunmadan biter. */
+  function requireOperator(req, res, next) {
+    if (!config.operatorToken) {
+      return res.status(503).json({
+        error: "operator girisi kapali",
+        detail: "OPERATOR_TOKEN tanimli degil; model ve zincir yollari kullanilamaz.",
+      });
+    }
+    const id = req.get("x-operator-session");
+    const exp = id ? sessions.get(id) : undefined;
+    if (!exp || exp <= now()) {
+      if (id) sessions.delete(id);
+      return res.status(401).json({ error: "operator oturumu gerekli" });
+    }
+    sessions.set(id, now() + SESSION_TTL_MS); // kullanimda uzat
+    next();
+  }
+
+  app.post("/api/operator/login", (req, res) => {
+    if (!config.operatorToken) {
+      return res.status(503).json({ error: "operator girisi kapali" });
+    }
+    const given = req.body?.token;
+    // Token hicbir yere YAZDIRILMAZ.
+    if (typeof given !== "string" || !sameSecret(given, config.operatorToken)) {
+      return res.status(401).json({ error: "token gecersiz" });
+    }
+    sweepSessions(now());
+    const id = crypto.randomBytes(32).toString("base64url");
+    sessions.set(id, now() + SESSION_TTL_MS);
+    res.json({ session: id, expiresInMs: SESSION_TTL_MS });
+  });
+
+  app.post("/api/operator/logout", (req, res) => {
+    const id = req.get("x-operator-session");
+    if (id) sessions.delete(id);
+    res.json({ ok: true });
+  });
 
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true, model: config.modelId, chainId: config.chainId });
   });
 
-  app.get("/api/state", async (_req, res) => {
+  app.get("/api/state", async (req, res) => {
     let vault = null;
     let agent = null;
     try {
@@ -62,9 +119,33 @@ export function createApp({ chain, model, queue, config, budget, now = Date.now 
       vault = null;
       agent = null;
     }
+    // Istenirse tek bir vekaletin zincirdeki durumu (salt okunur).
+    let mandate = null;
+    const wanted = req.query.mandateId;
+    if (wanted !== undefined && wanted !== "") {
+      try {
+        const m = await chain.getMandate(wanted);
+        mandate = {
+          id: m.id.toString(),
+          agent: m.agent,
+          payee: m.payee,
+          payeeLabel: config.payeeLabels?.[m.payee.toLowerCase()] ?? null,
+          amountMon: weiToMon(m.amount),
+          expiry: m.expiry.toString(),
+          used: m.used,
+          revoked: m.revoked,
+        };
+      } catch (err) {
+        mandate = { error: "vekalet okunamadi" };
+      }
+    }
+
     res.json({
       chainId: config.chainId,
       scope: "Monad testnet - native MON",
+      mandate,
+      explorerBase: chain.explorerTx ? chain.explorerTx("").replace(/\/$/, "") : null,
+      serverTime: new Date(now()).toISOString(),
       vaultAddress: chain.vaultAddress,
       agentAddress: chain.agentAddress,
       vaultBalanceMon: vault,
@@ -72,14 +153,16 @@ export function createApp({ chain, model, queue, config, budget, now = Date.now 
       queue: queue.state(),
       budget: budget.state(),
       unlockedMandates: [...unlocked],
-      controlledPathsEnabled: Boolean(config.operatorToken),
+      operatorLoginEnabled: Boolean(config.operatorToken),
+      attackerAddress: config.attackerAddress ?? null,
+      fixtures: Boolean(config.fixtures),
       replayableMandates: [...lastPaidCall.keys()],
       attempts: attempts.slice(-20),
       counters: countersFrom(attempts),
     });
   });
 
-  app.post("/api/attempt", async (req, res) => {
+  app.post("/api/attempt", requireOperator, async (req, res) => {
     const { mandateId, untrusted, mode = MODE.MODEL, controlledCall } = req.body ?? {};
     if (mandateId === undefined || mandateId === null) {
       return res.status(400).json({ error: "mandateId gerekli" });
@@ -89,13 +172,12 @@ export function createApp({ chain, model, queue, config, budget, now = Date.now 
       return res.status(400).json({ error: `mode su degerlerden biri olmali: ${known.join(", ")}` });
     }
 
-    // Normal akis (mode === "model") kontrollu yollara asla gecemez;
-    // kullanilabilir vekalet kontrolu orada her zaman uygulanir.
+    // Oturum yukaridaki requireOperator ile zaten dogrulandi; buradan
+    // sonrasi yalnizca mod'a ozgu kontroller. Normal akis (mode === "model")
+    // kontrollu yollara asla gecemez; kullanilabilir vekalet kontrolu orada
+    // her zaman uygulanir.
     let replayCall = null;
     if (mode !== MODE.MODEL) {
-      const auth = operatorAllowed(req);
-      if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
-
       if (mode === MODE.CONTROLLED && !controlledCall) {
         return res.status(400).json({ error: "kontrollu testte controlledCall gerekli" });
       }
