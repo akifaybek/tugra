@@ -1207,6 +1207,100 @@ muhur uzeri cizili ve "KULLANILDI" yazdi; `?mandateId=99` ile
 IDE secimi yoluyla `OPERATOR_TOKEN` degeri sohbet baglamina dustu.
 Belirtecin hem `.env` hem Render panelinde **degistirilmesi** gerekiyor.
 
+## Canli prova 2 - PUBLIC SUNUCUDA TAMAMLANDI
+
+Tarih: 2026-10-24. Sunucu: **https://tugra.onrender.com** (Render).
+Zincir: Monad Testnet, chainId 10143.
+Kontrat `0xC2C75CDbc79e42e8897491FCe3a193EDEB795212`.
+
+**Dort adimin hepsi basarili. Demonun uc kaniti da public sunucuda uretildi.**
+
+### Yeni vekalet
+
+| | |
+| --- | --- |
+| **ID** | **3** - `MandateCreated` olayinin topic1'inden okundu, varsayilmadi |
+| Ajan | `0xCCeaAfE11dd6C0f0eb7F683396B79F69d6c0bd1C` |
+| Alici | `0xb02e588c7e9Db3D646CbFA78652dFdA6B4437587` |
+| Tutar | 0,01 MON |
+| Expiry | `1792873843` (olusturma + 28.800 sn = 8 saat) |
+| **Acik URL** | **https://tugra.onrender.com/?mandateId=3** |
+
+### Dort islem
+
+| # | Adim | Nerede | Kaynak etiketi | tx |
+| - | ---- | ------ | -------------- | -- |
+| 1 | vekalet #3 | yerel OWNER scripti | - | [`0x30ce0599dd7b1efb57055ebea450b13bbb64b93865328efc15653e80b6ee4209`](https://testnet.monadscan.com/tx/0x30ce0599dd7b1efb57055ebea450b13bbb64b93865328efc15653e80b6ee4209) |
+| 2 | yanlis alici | **public sunucu** | **Kontrollu test** | [`0x55bd932bd66bc7d9cb2f0a11a93b260e6dead118c99d59ede034596f73593676`](https://testnet.monadscan.com/tx/0x55bd932bd66bc7d9cb2f0a11a93b260e6dead118c99d59ede034596f73593676) |
+| 3 | mesru odeme | **public sunucu** | **Gercek model karari** | [`0xec3032dd36dab4f0895389791f8164d76e972b3de6a4040fa2f396d1105bfbfc`](https://testnet.monadscan.com/tx/0xec3032dd36dab4f0895389791f8164d76e972b3de6a4040fa2f396d1105bfbfc) |
+| 4 | tekrar odeme | **public sunucu** | **Kontrollu test - tekrar odeme** | [`0x8eaf93b4e2a8e34a2e99b03418e991081e40edeb9a7ddfe44e6c1392421afb60`](https://testnet.monadscan.com/tx/0x8eaf93b4e2a8e34a2e99b03418e991081e40edeb9a7ddfe44e6c1392421afb60) |
+
+### Makbuz ve trace kanitlari
+
+| # | status | gasUsed | gasLimit | preflight | trace revert |
+| - | ------ | ------- | -------- | --------- | ------------ |
+| 1 | true | 120.381 | 120.381 | estimateGas x1,2 | - |
+| 2 | **false** | 60.000 | 60.000 | `revert_confirmed` / PayeeMismatch | `0xe28e12ad` = **PayeeMismatch** |
+| 3 | true | 80.613 | 80.613 | `ok` (tahmin 67.178) | - |
+| 4 | **false** | 60.000 | 60.000 | `revert_confirmed` / AlreadyUsed | `0x7b8c8210` = **AlreadyUsed** |
+
+Revert nedenleri bagimsiz `debug_traceTransaction` ile, gercek islem
+uzerinden dogrulandi. Adim 2'nin calldata'sinda alici
+`0x7addb0120984a62b594e6292b30791ee2940bb52` (ATTACKER) goruluyor.
+
+### Davranis dogrulamalari
+
+- Adim 2 sonrasi vekalet **`used: false`** kaldi, ATTACKER **0 MON**.
+- Adim 3: `matchesMandate: true`, PROVIDER **0,02 -> 0,03 MON** (+0,01),
+  kasa 0,03 -> 0,02, vekalet **`used: true`**,
+  `GET /api/data?mandateId=3` -> **HTTP 200**.
+- Adim 4 sonrasi PROVIDER **hala 0,03 MON** - ek odeme yok, veri yeniden
+  acilmadi. Istek govdesine parametre KONMADI; sunucu kayitli cagriyi
+  tekrarladi.
+- ATTACKER akis boyunca hicbir zaman MON almadi.
+
+### Olculen sureler (public sunucu)
+
+| Adim | modelMs | chainMs |
+| ---- | ------- | ------- |
+| 2 kontrollu test | **null** (model cagrilmadi) | 347 |
+| 3 gercek model | **1.378** | 120 |
+| 4 kontrollu tekrar | **null** (model cagrilmadi) | 463 |
+
+Tek model istegi yapildi (adim 3), `max_tokens: 1024`. Model temiz akista
+dogru aliciyi secti; saldirgan notu verilmedi.
+
+### Butce uzlastirmasi - sapma 0 wei
+
+| Hesap | Once | Simdi | Fark |
+| ----- | ---- | ----- | ---- |
+| OWNER | 0,830954678 | 0,818675816 | **-0,012278862** |
+| AGENT | 0,968218432 | 0,947755906 | **-0,020462526** |
+| PROVIDER | 0,020000000 | 0,030000000 | **+0,010000000** |
+| ATTACKER | 0,000000000 | 0,000000000 | 0 |
+| KASA | 0,030000000 | 0,020000000 | -0,010000000 |
+
+| Taraf | Makbuz toplami | Bakiye farki | Sapma | Sinir | Kullanim |
+| ----- | -------------- | ------------ | ----- | ----- | -------- |
+| OWNER | 0,012278862 | 0,012278862 | **0 wei** | 0,030 | %41 |
+| AGENT | 0,020462526 | 0,020462526 | **0 wei** | 0,065 | %31 |
+
+Butun islemler 102 gwei efektif fiyattan odendi; 200 gwei tavani devreye
+girmedi. Kasadan cikan tek tutar 0,01 MON ve PROVIDER'a gitti.
+
+Kullanim: 1 OWNER + 3 AGENT islemi (sinir 1 + 3), 1 model istegi (sinir 1).
+
+### Yontem notlari
+
+- Vekalet ID'si olaydan okundu; Render'daki `MANDATE_ID` varsayilani
+  degistirilmedi ve surec yeniden baslatilmadi. Public isteklere ID
+  acikca `"mandateId": "3"` olarak verildi.
+- OWNER anahtari yerelde kaldi; public sunucuya gonderilmedi.
+- `OPERATOR_TOKEN` yalnizca tek bir giris istegine kondu; loga, cikti
+  metnine veya URL'ye yazilmadi. Oturum kimligi istek disinda tutulmadi
+  ve prova sonunda silindi.
+- Otomatik tekrar, replacement veya ek islem yapilmadi.
+
 ## Organizator sartlari (slaytlardan, 2026-10-24)
 
 - Teslim 16.30; hedef 16.00.
