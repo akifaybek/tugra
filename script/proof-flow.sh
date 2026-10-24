@@ -46,7 +46,7 @@ EXEC_SIG="execute(uint256,address,uint256)"
 tx_hash() { python3 -c "import sys,json;print(json.load(sys.stdin)['transactionHash'])"; }
 
 report() {
-  local hash="$1" beklenen="$2" status gas
+  local hash="$1" status gas
   status=$(cast receipt "${RPC[@]}" "$hash" status)
   gas=$(cast receipt "${RPC[@]}" "$hash" gasUsed)
   show_tx "$hash"
@@ -56,19 +56,55 @@ report() {
 }
 
 # Revert bekleyen islemi tahmin yapmadan gonderir.
+# NOT: cast stderr'e dotenv uyarisi basiyor; 2>&1 kullanilirsa JSON'a
+# karisir ve ayristirma bozulur. stdout ve stderr AYRI tutulur.
+# Ayrica cast send revert eden islemde sifirdan farkli kod donduruyor;
+# makbuz JSON'u yine stdout'a yazildigi icin cikis kodu yutulur.
 send_expecting_revert() {
   local key="$1"; shift
-  local out hash
-  set +e
-  out=$(cast send "${RPC[@]}" "${FEE_ARGS[@]}" --private-key "$key" --gas-limit "$GAS_REVERT" "$@" --json 2>&1)
-  set -e
+  local out err hash
+  err=$(mktemp)
+  out=$(cast send "${RPC[@]}" "${FEE_ARGS[@]}" --private-key "$key" \
+        --gas-limit "$GAS_REVERT" "$@" --json 2>"$err") || true
   hash=$(printf '%s' "$out" | tx_hash 2>/dev/null || true)
   if [[ -z "$hash" ]]; then
-    echo "Islem gonderilemedi:" >&2; printf '%s\n' "$out" | head -5 >&2; exit 1
+    echo "Islem gonderilemedi." >&2
+    head -5 "$err" >&2; rm -f "$err"; exit 1
   fi
+  rm -f "$err"
   report "$hash" "false"
-  echo "revert sebebi: $(cast receipt "${RPC[@]}" "$hash" --json \
-    | python3 -c "import sys,json;print(json.load(sys.stdin).get('revertReason','(yok)'))")"
+  verify_revert "$hash"
+}
+
+# Revert nedenini GERCEK islemden dogrular.
+# Monad testnet makbuzunda revertReason alani YOK; bu yuzden salt okunur
+# debug_traceTransaction (callTracer) kullanilir. Trace alinamazsa ya da
+# selector eslesmezse DURULUR - status 0 tek basina kanit sayilmaz.
+verify_revert() {
+  local hash="$1"
+  cast rpc "${RPC[@]}" debug_traceTransaction "$hash" '{"tracer":"callTracer"}' 2>/dev/null \
+    | BEKLENEN="${BEKLENEN_HATA:-}" python3 -c "
+import sys, os, json
+try:
+    d = json.load(sys.stdin)
+except ValueError:
+    sys.exit('DUR: trace alinamadi; revert nedeni DOGRULANAMADI')
+out = d.get('output')
+err = d.get('error')
+sel = {'0xe28e12ad':'PayeeMismatch()', '0x7b8c8210':'AlreadyUsed()',
+       '0x0d9ab13f':'NotAgent()', '0x203d82d8':'Expired()',
+       '0x55e97b0d':'AmountMismatch()', '0x44825a4b':'Revoked()',
+       '0x82b42900':'Unauthorized()'}
+print('trace error :', err)
+print('revert data :', out)
+ad = sel.get(out)
+print('hata        :', ad or '(bilinmeyen selector)')
+beklenen = os.environ.get('BEKLENEN')
+if ad is None:
+    sys.exit('DUR: revert verisi bilinen bir hataya eslemedi')
+if beklenen and ad != beklenen:
+    sys.exit('DUR: beklenen ' + beklenen + ', gelen ' + ad)
+"
 }
 
 case "$STEP" in
@@ -114,6 +150,7 @@ case "$STEP" in
   4|wrong-payee)
     require_var VAULT_ADDRESS; require_var MANDATE_ID
     confirm_gate "YANLIS ALICI (ajan) -> PayeeMismatch beklenir, sabit gas limiti $GAS_REVERT"
+    export BEKLENEN_HATA="PayeeMismatch()"
     send_expecting_revert "$AGENT_PRIVATE_KEY" \
       "$VAULT_ADDRESS" "$EXEC_SIG" "$MANDATE_ID" "$ATTACKER_ADDRESS" "$MANDATE_AMOUNT_WEI"
     echo "Vekalet tukenmedi mi (used alani false olmali):"
@@ -135,6 +172,7 @@ case "$STEP" in
   6|repeat)
     require_var VAULT_ADDRESS; require_var MANDATE_ID
     confirm_gate "TEKRAR odeme (ajan) -> AlreadyUsed beklenir, sabit gas limiti $GAS_REVERT"
+    export BEKLENEN_HATA="AlreadyUsed()"
     send_expecting_revert "$AGENT_PRIVATE_KEY" \
       "$VAULT_ADDRESS" "$EXEC_SIG" "$MANDATE_ID" "$PROVIDER_ADDRESS" "$MANDATE_AMOUNT_WEI"
     ;;
