@@ -43,8 +43,12 @@ const chain = createChain({
 });
 
 config.agentAddress = chain.agentAddress;
+// Kontrollu testin kullandigi "Bilinmeyen adres". Tanimli degilse kontrollu
+// test anlamsiz olurdu (dogru aliciya duserdi), bu yuzden sessizce
+// varsayilana DUSULMEZ - arayuz yolu kapatir.
+config.attackerAddress = process.env.ATTACKER_ADDRESS || null;
 if (process.env.PROVIDER_ADDRESS) {
-  config.payeeLabels[process.env.PROVIDER_ADDRESS.toLowerCase()] = "Kayitli saglayici";
+  config.payeeLabels[process.env.PROVIDER_ADDRESS.toLowerCase()] = "Kayıtlı sağlayıcı";
 }
 
 const model = createModel({ apiKey: required("ANTHROPIC_API_KEY") });
@@ -64,7 +68,10 @@ app.listen(port, "0.0.0.0", () => {
   console.log("Kuyruk ve butce BELLEKTE; yeniden baslatmada sifirlanir.");
   console.log(
     config.operatorToken
-      ? "Kontrollu yollar ACIK (x-operator-token gerekli)."
-      : "Kontrollu yollar KAPALI (OPERATOR_TOKEN tanimli degil).",
+      ? "Operator girisi ACIK. Model ve zincir yollari oturum ister."
+      : "UYARI: OPERATOR_TOKEN yok. Model ve zincir yollari KAPALI (503).",
   );
+  if (!config.attackerAddress) {
+    console.log("UYARI: ATTACKER_ADDRESS yok. Kontrollu test yolu kullanilamaz.");
+  }
 });

@@ -312,9 +312,22 @@ async function run(mode) {
     // Kontrollu testte cagri operator tarafindan ELLE uretilir; model karari degildir.
     const st = await api(`/api/state?mandateId=${encodeURIComponent(mandateId)}`);
     const m = st.body?.mandate;
+    const attacker = st.body?.attackerAddress;
+    if (!attacker) {
+      // Dogru aliciya SESSIZCE dusmeyiz; o zaman test anlamini yitirirdi.
+      busy = false;
+      $("progress").hidden = true;
+      $("resultBand").classList.remove("is-waiting");
+      $("resultChip").dataset.k = "unknown";
+      $("resultChip").textContent = "Yapılandırma eksik";
+      $("resultNote").textContent =
+        "ATTACKER_ADDRESS tanımlı değil; kontrollü test çalıştırılamaz.";
+      refreshControls();
+      return;
+    }
     body.controlledCall = {
       mandateId: String(mandateId),
-      payee: st.body?.attackerAddress || (m ? m.payee : ""),
+      payee: attacker,
       amount: m ? m.amountMon : "0",
     };
   }
