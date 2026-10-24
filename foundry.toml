@@ -1,0 +1,19 @@
+[profile.default]
+src = "src"
+out = "out"
+test = "test"
+libs = ["dependencies"]
+
+# solc 0.8.35 yerel svm onbelleginde mevcut ve arm64 destekli; indirme gerekmez.
+# (Onbellekteki 0.8.20 yalnizca x86_64 oldugu icin bu makinede calismiyor.)
+solc = "0.8.35"
+
+# Monad testnet'in destekledigi EVM surumu henuz resmi dokumandan DOGRULANMADI.
+# En genis uyum icin "paris" secildi (PUSH0 yok). Asama 2'de dogrulanacak.
+evm_version = "prague"
+
+optimizer = true
+optimizer_runs = 200
+
+[dependencies]
+forge-std = "1.9.7"

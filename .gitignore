@@ -1,0 +1,16 @@
+# Gizli bilgiler - asla commit edilmez
+.env
+
+# Foundry
+out/
+cache/
+broadcast/
+
+# Soldeer bagimliliklari (soldeer.lock ve remappings.txt commit edilir)
+dependencies/
+
+# Node
+node_modules/
+
+# macOS
+.DS_Store
