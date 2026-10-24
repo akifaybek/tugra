@@ -749,6 +749,73 @@ dogrulandi, acilista "Kontrollu yollar KAPALI" yazdi ve token'siz
 `controlled_repeat` istegi **HTTP 503** dondu. Hicbir gizli deger loga
 dusmedi.
 
+### Gercek RPC adaptoru - SALT OKUNUR DOGRULAMA YAPILDI
+
+Tarih: 2026-10-24. **Hicbir islem gonderilmedi veya imzalanmadi; model
+API cagrisi yapilmadi.** Dogrulama sunucunun KENDI kodu (`server/chain.js`,
+`server/core.js`, `server/preflight.js`) uzerinden yapildi.
+
+Adaptore uc salt okunur yardimci eklendi: `chainId()`, `codeAt()`,
+`getReceipt()`.
+
+**Sonuc: 21 kontrol, 21 gecti.**
+
+| # | Dogrulanan yol | Sonuc |
+| - | -------------- | ----- |
+| 1 | `chainId()` | **10143** - beklenenle ayni |
+| 1 | Adaptorun turettigi ajan adresi | `0xCCea...bd1C` - beklenenle ayni |
+| 1 | `codeAt()` kasa adresinde kod | **2.983 bayt** - `forge build --sizes` ile ayni |
+| 2 | `getMandate(1)` tuple cozumlemesi | Alti alanin hepsi kayitli degerlerle eslesti |
+| 3 | `getReceipt()` iki gercek basarisiz islem | Ikisi de `status: reverted`, `gasUsed: 60000` |
+| 4 | `getRevertReason()` trace cozumlemesi | `0xe28e12ad` -> `PayeeMismatch`, `0x7b8c8210` -> `AlreadyUsed` |
+| 5 | `preflightExecute()` kullanilmis vekalette | `revert_confirmed`, `errorName: AlreadyUsed` |
+| 5 | `decideGas()` karari | Gonderim izni var, sabit limit 60.000 |
+| 7 | Normal akis kullanilmis vekalette | `mandate_unusable`, **sifir gonderim denemesi**, model cagrilmadi |
+
+`getMandate(1)` alan alan karsilastirma:
+
+| Alan | Zincirden okunan | Kayitli deger |
+| ---- | ---------------- | ------------- |
+| agent | `0xcceaafe1...bd1c` | AGENT |
+| payee | `0xb02e588c...7587` | PROVIDER |
+| expiry | `1792837675` | 1792837675 |
+| used | `true` | true |
+| revoked | `false` | false |
+| amount | `0.01 MON` (BigInt) | 0.01 MON |
+
+### En onemli bulgu: onceki en buyuk risk KAPANDI
+
+Bir onceki raporda "`preflightExecute`'un viem hata zincirinden
+`ContractFunctionRevertedError` cikarip `errorName` cozebildigi canli
+DOGRULANMADI" yaziyordu. **Artik dogrulandi**: gercek RPC'ye karsi
+yapilan salt okunur `estimateContractGas` cagrisi revert etti, adaptor
+hatayi cozdu ve `AlreadyUsed` adini dondurdu. Yani sabit limitli gonderim
+yolu gercek ag kosullarinda calisiyor.
+
+### Yeni ogrenilen: kontrat kontrol SIRASI
+
+Kullanilmis vekalet #1'e **yanlis aliciyla** preflight yapildiginda donen
+hata `PayeeMismatch` degil **`AlreadyUsed`**. Sebep kontratin kontrol
+sirasi: `agent -> revoked -> used -> expiry -> payee -> amount`. Vekalet
+zaten tukenmis oldugu icin `used` kontrolu once patliyor.
+
+Bu kontratin dogru davranisi, adaptor sorunu DEGIL. Ama demo acisindan
+onemli: **yanlis alici kaniti icin vekaletin TAZE olmasi sart.**
+
+### Kalan belirsizlikler
+
+- `preflightExecute`'un **`PayeeMismatch`** adini cozmesi canli
+  **DOGRULANMADI**. Ayni cozucu `AlreadyUsed`'i cozdugu ve ayni trace
+  yolu gecmiste `PayeeMismatch` selector'unu dogru okudugu icin calismasi
+  bekleniyor, ama taze vekalet olmadan kanitlanamaz. Yeni vekalet
+  olusturulunca ILK kontrol bu olmali.
+- `preflight` `ok` yolu (basarili tahmin) canli **denenmedi**; vekalet #1
+  tukenmis oldugu icin her cagri revert ediyor.
+- `sendExecute` ve `waitForReceipt` canli **denenmedi** (islem
+  gonderilmedi).
+- Model akis icinde hic cagrilmadi; `pay` araciyla arac cagrisi uretip
+  uretmedigi hala **DOGRULANMADI**.
+
 ### Canli entegrasyonda KALAN isler
 
 Bunlarin hicbiri henuz calistirilmadi:
@@ -759,13 +826,11 @@ Bunlarin hicbiri henuz calistirilmadi:
    vermedigi **DOGRULANMADI**. Model sayi tipi dondurursa cagri bicimsel
    olarak gecersiz sayilip zincire gitmez - bu davranis sahte veriyle
    test edildi ama gercek modelde gozlenmedi.
-2. **Gercek RPC ile tek bir deneme calistirilmadi.** viem adaptorunun
-   `getMandate` tuple cozumu, `debug_traceTransaction` cagrisi ve
-   ozellikle `preflightExecute`'un viem hata zincirinden
-   `ContractFunctionRevertedError` cikarip `errorName` cozmesi canli
-   olarak **DOGRULANMADI**. Cozemezse `unresolved` donup gonderim
-   yapmayacagi icin guvenli tarafa duser, ama o zaman da yanlis alici
-   kaniti uretilemez - ilk canli denemede mutlaka kontrol edilmeli.
+2. **Gercek RPC adaptoru salt okunur DOGRULANDI** (yukariya bakin):
+   `getMandate` tuple cozumu, makbuz okuma, trace ile revert cozumlemesi
+   ve `preflightExecute`'un `errorName` cozmesi gercek agda calisti.
+   Kalan: `PayeeMismatch` cozumlemesi, `preflight ok` yolu, `sendExecute`
+   ve `waitForReceipt` - bunlar taze vekalet ve gercek gonderim gerektirir.
 3. **Yeni vekalet gerekiyor.** Vekalet #1 tukenmis durumda; sunucu
    vekalet olusturamadigi icin operator `script/proof-flow.sh mandate`
    ile yeni vekalet uretmeli (ayri onay).

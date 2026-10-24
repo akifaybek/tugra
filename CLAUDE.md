@@ -51,6 +51,15 @@ Proje kararı kesin: Tuğra. Yeni fikir veya özellik önerme.
 - Model süresi ve zincir süresi ayrı ölçülür; zincir süresi gönderimden kesinleşmeye kadardır.
 - Başarılı yetkili ödeme sonrasında örnek veri erişimi açılır.
 - Her prova için yeni vekâlet oluşturulur.
+1. UI TASARIM TERCİHLERİ
+- Minimal, göz yormayan, profesyonel.
+- Güçlü boşluk ve tipografi; sakin palet; tutarlı detaylar.
+- Telefon ve projeksiyonda okunabilirlik.
+- Hazır AI/SaaS şablonu görünümü istenmiyor.
+- Görsel referanslar birebir kopyalanmayacak.
+- Tuğra'nın tek işe özel vekâlet koşulları tasarımın odağı olacak.
+- UI tasarım yönü ayrıca netleştirilmeden uygulamaya başlanmayacak.
+
 1. EKRANLAR
 - Telefon:
     - Cüzdan gerektirmez; yalnızca sağlayıcı notu gönderilir.
@@ -128,12 +137,12 @@ Proje kararı kesin: Tuğra. Yeni fikir veya özellik önerme.
 - Sen hiçbir git komutunu çalıştırma. Commit ve push işlemlerini yalnızca ben yapacağım.
 - Her adım sonunda “COMMIT ZAMANI” bloğu ver:
     1. Değişen dosyaları ve doğrulama sonucunu kısaca açıkla.
-    2. Terminale kopyalayıp yapıştıracağım git komutlarını ver: yalnızca ilgili dosyaları ekleme ve açıklayıcı mesajla commit. İnceleme komutu (git status, git diff) ekleme.
+    2. Terminale kopyalayıp yapıştıracağım git komutlarını ver: açık dosya yollarıyla inceleme ve stage komutları, ardından kısa commit mesajıyla commit.
+    3. Ardından AYRI bir kod bloğunda `git push -u origin main` komutunu ver. Push komutunu önermeye iznin var; hiçbir git komutunu kendin çalıştırma.
 - Dosya eklerken açık dosya yolları kullan. Asla git add . veya git add -A verme.
 - .env, private key, API key veya başka gizli bilgi içeren dosyalar commit’e eklenmez.
 - Commit mesajını sen hazırla; komutları çalıştırmak ve commit’i atmak benim görevim.
 - Commit mesajı kısa olsun: tek satır başlık, gerekirse en fazla 2-3 satır gövde. Doğrulama çıktılarını, test listelerini ve gerekçeleri mesaja değil STATUS.md’ye yaz.
-- Push komutunu yalnızca istediğimde ver; kendin çalıştırma.
 - .env dosyasını okuma veya içeriğini yazdırma. Gerekli değişkenin doluluk kontrolü yalnızca şu biçimde yapılır: grep -q "^X=." .env && echo dolu
 - Bu kontrolde X yerine gerekli değişken adını kullan; değerini gösterme.
 - Private key veya API key’i sohbete yapıştırmamı isteme.

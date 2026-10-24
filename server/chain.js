@@ -191,6 +191,21 @@ export function createChain({ rpcUrl, agentPrivateKey, vaultAddress, feeCapWei, 
     return { selector, name: REVERT_SELECTORS[selector] ?? null, raw: data };
   }
 
+  /** Salt okunur: bagli zincirin kimligi. */
+  async function chainId() {
+    return publicClient.getChainId();
+  }
+
+  /** Salt okunur: adreste kod var mi (kontrat gercekten deploy edilmis mi). */
+  async function codeAt(address = vaultAddress) {
+    return publicClient.getCode({ address });
+  }
+
+  /** Salt okunur: zaten madenlenmis bir islemin makbuzu. */
+  async function getReceipt(txHash) {
+    return publicClient.getTransactionReceipt({ hash: txHash });
+  }
+
   async function vaultBalance() {
     return publicClient.getBalance({ address: vaultAddress });
   }
@@ -202,6 +217,9 @@ export function createChain({ rpcUrl, agentPrivateKey, vaultAddress, feeCapWei, 
   return {
     agentAddress: account.address,
     vaultAddress,
+    chainId,
+    codeAt,
+    getReceipt,
     getMandate,
     preflightExecute,
     sendExecute,
