@@ -353,6 +353,136 @@ Saglayici ve saldirgan AYRI, operator kontrolundeki adreslerdir
 (`PROVIDER_ADDRESS`, `ATTACKER_ADDRESS`). `script/preflight.sh` ikisinin
 birbirinden ve sahip/ajandan farkli oldugunu kontrol eder.
 
+## Asama 2 SONUC - Testnet kanit akisi TAMAMLANDI
+
+Tarih: 2026-10-24. Ag: **Monad Testnet, chainId 10143**.
+Alti islem gonderildi, hepsi dogrulandi.
+
+| | |
+| --- | --- |
+| Kontrat | `0xC2C75CDbc79e42e8897491FCe3a193EDEB795212` |
+| Vekalet ID | `1` |
+| OWNER | `0x74F2e006a010535E22D3f95355EdD4fA4d1050f4` |
+| AGENT | `0xCCeaAfE11dd6C0f0eb7F683396B79F69d6c0bd1C` |
+| PROVIDER (guvenilir alici) | `0xb02e588c7e9Db3D646CbFA78652dFdA6B4437587` |
+| ATTACKER ("Bilinmeyen adres") | `0x7ADDB0120984A62B594E6292B30791eE2940Bb52` |
+
+Vekalet: AGENT yetkili, PROVIDER alici, 0,01 MON, expiry `1792837675`
+(olusturma blogu + 3600 sn), tek kullanim.
+
+### Alti islem - hash ve explorer
+
+| # | Adim | tx |
+| - | ---- | -- |
+| 1 | deploy | [`0x4e95ad0d...08dc14`](https://testnet.monadscan.com/tx/0x4e95ad0d0189501b47fce2a5e0bf34fbd33830364054399202cec30ace08dc14) |
+| 2 | deposit 0,05 MON | [`0x90bd79a0...8321dc`](https://testnet.monadscan.com/tx/0x90bd79a09130f0a93c7f90dca362a1f4fb5926c0a67f7710196c479de28321dc) |
+| 3 | createMandate | [`0x5ff9c619...662af9`](https://testnet.monadscan.com/tx/0x5ff9c61959a9dcf3dbd68e7f3666cfd488a453de265848e39838f54ef8662af9) |
+| 4 | yanlis alici (revert) | [`0x3d24e759...9be81e`](https://testnet.monadscan.com/tx/0x3d24e759e7952502f8e94c6058e0b01ba854e7aee0e3ee18952a5e52399be81e) |
+| 5 | mesru odeme | [`0xaf660a86...41a1a5`](https://testnet.monadscan.com/tx/0xaf660a8691e6d38800d8e3be5083b27a9222f98d45675e2c5f45a74c7241a1a5) |
+| 6 | tekrar odeme (revert) | [`0x8cbd9df1...f530f1`](https://testnet.monadscan.com/tx/0x8cbd9df13f1832e87371f64997aae2db18979b9cf6f01e5b01c81e31fef530f1) |
+
+Tam hash'ler yukaridaki baglantilarin icinde.
+
+### Gerceklesen maliyetler - makbuzlardan okundu
+
+Butun degerler `cast tx` / `cast receipt` ile zincirden alindi. Tahmin ya da
+ucret tavani DEGIL; `ucret = gasUsed x effectiveGasPrice`.
+
+| # | Adim | Gonderen | gasLimit | gasUsed | effGasPrice | maxFeePerGas | Ucret (MON) | value | status |
+| - | ---- | -------- | -------- | ------- | ----------- | ------------ | ----------- | ----- | ------ |
+| 1 | deploy | OWNER | 898.713 | 898.713 | 102 gwei | 200 gwei | 0,091668726 | 0 | 1 |
+| 2 | deposit | OWNER | 27.636 | 27.636 | 102 gwei | 200 gwei | 0,002818872 | 0,05 | 1 |
+| 3 | mandate | OWNER | 120.381 | 120.381 | 102 gwei | 200 gwei | 0,012278862 | 0 | 1 |
+| 4 | yanlis alici | AGENT | 60.000 | 60.000 | 102 gwei | 200 gwei | 0,006120000 | 0 | **0** |
+| 5 | odeme | AGENT | 110.971 | 110.971 | 102 gwei | 200 gwei | 0,011319042 | 0 | 1 |
+| 6 | tekrar | AGENT | 60.000 | 60.000 | 102 gwei | 200 gwei | 0,006120000 | 0 | **0** |
+
+Her islemde **gasUsed = gasLimit**. Monad'in ucreti kullanilan gas'a degil
+LIMITE gore kestigi zincirde dogrulandi. Ucret tavani (200 gwei) hicbir
+islemde devreye girmedi; hepsi 102 gwei (base 100 + priority 2) odedi.
+
+### Uzlastirma - sapma 0 wei
+
+| Taraf | Makbuz toplami (ucret + value) | Bakiye farki | Sapma |
+| ----- | ------------------------------ | ------------ | ----- |
+| OWNER | 0,156766460 | 0,156766460 | **0 wei** |
+| AGENT | 0,023559042 | 0,023559042 | **0 wei** |
+
+**ONCEKI RAPORDA HATA VARDI, DUZELTILDI:** 6. islemin maliyeti 0,012 MON
+diye yazilmisti; bu gerceklesen ucret degil, gas limiti x ucret TAVANI idi.
+Gerceklesen 0,006120 MON. Bu hata AGENT toplamini da 0,029439 gosteriyordu;
+dogrusu **0,023559042 MON**.
+
+### Son bakiyeler
+
+| Hesap | Bakiye (MON) | Harcanan | Sinir | Durum |
+| ----- | ------------ | -------- | ----- | ----- |
+| OWNER | 0,843233540 | 0,156766460 (0,05'i kasa fonu) | 0,27 | sinir altinda |
+| AGENT | 0,976440958 | 0,023559042 | 0,045 | sinir altinda |
+| PROVIDER | 0,010000000 | - | | tek odemeyi aldi |
+| ATTACKER | 0,000000000 | - | | **hic odeme almadi** |
+| KASA | 0,040000000 | - | | 4 odeme daha yeter |
+
+### Ret nedeni kanitlari - trace ile
+
+Monad testnet makbuzunda **`revertReason` alani YOK** (yerel anvil'de vardi).
+`status = 0` tek basina hangi hatanin dondugunu gostermez. Bu yuzden revert
+nedeni salt okunur `debug_traceTransaction` (callTracer) ile GERCEK islemden
+okundu.
+
+**Adim 4** - `error: execution reverted`, `output: 0xe28e12ad` =
+**`PayeeMismatch()`**. Trace'teki calldata: `execute(1, 0x7ADDB...Bb52,
+0x2386f26fc10000)` - alici ATTACKER, tutar 0,01 MON.
+
+**Adim 6** - `error: execution reverted`, `output: 0x7b8c8210` =
+**`AlreadyUsed()`**. Calldata: `execute(1, 0xb02e...7587, 0x2386f26fc10000)` -
+alici PROVIDER, ayni vekalet.
+
+### Davranis dogrulamalari
+
+- Adim 4 sonrasi vekalet `used = false` kaldi, kasa 0,05 MON, PROVIDER ve
+  ATTACKER 0 MON. **Basarisiz deneme vekaleti tuketmedi.**
+- Adim 5: PROVIDER 0 -> **0,01 MON**, kasa 0,05 -> 0,04, vekalet
+  `used = true`.
+- Adim 6 sonrasi PROVIDER **hala 0,01 MON**. Ek odeme olmadi.
+- ATTACKER akis boyunca **hicbir zaman MON almadi**.
+
+### Dogrulama kapsami - AYRIMI ONEMLI
+
+**(a) Zincirde dogrulanan:** yukaridaki alti islem, `script/proof-flow.sh`'in
+o anki haliyle gonderildi. Deploy, deposit, mandate ve pay adimlari
+scriptten uctan uca calisti.
+
+**(b) Zincirde DOGRULANMAYAN:** adim 4 ve 6'da islemler dogru gonderildi ve
+revert etti, ama scriptin cikti isleme kismi iki kusurla patladi:
+
+1. `cast send` ciktisi `2>&1` ile aliniyordu; cast'in stderr'e bastigi dotenv
+   uyarisi JSON'a karisip ayristirmayi bozdu ("Islem gonderilemedi" yanlis
+   mesaji). Islem yine de zincire gitmisti.
+2. `verify_revert` iki parametre bekliyordu, tek parametreyle cagriliyordu:
+   `$2: unbound variable`.
+
+Ikisi de duzeltildi ve **zincire islem gondermeden** dogrulandi:
+
+- stdout/stderr ayrimi: dotenv uyarisi basan sahte bir komutla eski yontemin
+  ayristirmayi bozdugu yeniden uretildi; yeni yontem hash'i dogru okudu,
+  uyari ayri dosyaya dustu.
+- `verify_revert` fonksiyonu scriptten cikarilip bes senaryoyla kosuldu:
+  adim 4'un GERCEK trace ciktisi (gecti), adim 6'nin gercek ciktisi (gecti),
+  yanlis selector (DUR), bilinmeyen selector (DUR), trace alinamadi (DUR).
+
+**Duzeltilmis script henuz zincirde kosulmadi.** Bir sonraki provada
+dogrulanacak.
+
+### Acik belirsizlikler
+
+- `cast logs` ile `MandatePaid` olayini cekmeye calistim, bos dondu
+  (muhtemelen blok araligi/RPC log limiti). Odeme kanitini bakiye degisimi ve
+  `getMandate` durumundan aldim; **olay logu dogrulanmadi.**
+- Testnet'in guncel hardfork'u hala **DOGRULANMADI**; deploy ve cagrilar
+  sorunsuz calisti ama hardfork adi ayrica sorgulanmadi.
+- Kaynak dogrulama (`POST /v1/verify`) **henuz gonderilmedi**.
+
 ## Organizator sartlari (slaytlardan, 2026-10-24)
 
 - Teslim 16.30; hedef 16.00.
@@ -387,15 +517,15 @@ uyanik oldugu elle dogrulanacak.
 
 ## Engeller / eksikler
 
-- `.env` yok; degiskenlerin hicbiri dogrulanmadi.
-- Sahip/ajan/saglayici/saldirgan cuzdanlari uretilmedi, fon alinmadi.
-- Testnet'in guncel hardfork'u **DOGRULANMADI** (canli kontrol yapilmadi;
-  yerel varsayilan MonadTen).
-- Testnet uzerinde hicbir islem denenmedi. **Yerel anvil basarisi testnet
-  kaniti sayilmaz.**
+- Kaynak dogrulama (`POST /v1/verify`) gonderilmedi.
+- Duzeltilmis `proof-flow.sh` (stdout/stderr ayrimi + `verify_revert`)
+  zincirde kosulmadi; yalnizca kayitli/sahte veriyle dogrulandi.
+- `MandatePaid` olay logu `cast logs` ile cekilemedi (RPC log araligi).
+- Testnet hardfork'u **DOGRULANMADI**.
 - Anthropic API'sine tek test istegi atilmadi.
 - Barindirma hesabi (Render) acilmadi, servis deploy edilmedi.
-- `cloudflared` artik gerekli degil (barindirma kararina bakin).
+- Kasada 0,04 MON var; yalnizca 4 odeme daha yeter. Daha fazla prova icin
+  ek deposit gerekir (ayri onay).
 
 ## Kullanicidan beklenen en kucuk hazirlik
 
@@ -427,10 +557,8 @@ done
 
 ## Siradaki adim
 
-Kullanici hazirligi bittikten sonra, **ayri onayla**, Asama 2'nin zincir
-kismi: `proof-flow.sh` adim 1'den 6'ya, her adim icin onay alinarak.
-Ardindan `verify.sh send`.
+Asama 3 - ajan servisi. Zincir tarafi kanitlandi; kontrat, vekalet ve alti
+islem hazir.
 
-Paralel ve erken yapilmasi gerekenler (teslim sarti oldugu icin son
-dakikaya birakilmaz): public GitHub repo ve Render hesabi + bos bir Node
-servisinin bir kez deploy edilip public URL'in alinmasi.
+Ayrica beklemede: `verify.sh send` ile kaynak dogrulama, public GitHub repo,
+Render hesabi + bos Node servisinin bir kez deploy edilmesi.
