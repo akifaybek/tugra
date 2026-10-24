@@ -1,0 +1,20 @@
+{
+  "name": "tugra",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Tugra - ajana cuzdan degil vekalet",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "test": "node --test 'server/test/**/*.test.js'"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.70.0",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "viem": "^2.39.3"
+  }
+}
