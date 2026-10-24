@@ -132,6 +132,7 @@ Proje kararı kesin: Tuğra. Yeni fikir veya özellik önerme.
 - Dosya eklerken açık dosya yolları kullan. Asla git add . veya git add -A verme.
 - .env, private key, API key veya başka gizli bilgi içeren dosyalar commit’e eklenmez.
 - Commit mesajını sen hazırla; komutları çalıştırmak ve commit’i atmak benim görevim.
+- Commit mesajı kısa olsun: tek satır başlık, gerekirse en fazla 2-3 satır gövde. Doğrulama çıktılarını, test listelerini ve gerekçeleri mesaja değil STATUS.md’ye yaz.
 - Push komutunu yalnızca istediğimde ver; kendin çalıştırma.
 - .env dosyasını okuma veya içeriğini yazdırma. Gerekli değişkenin doluluk kontrolü yalnızca şu biçimde yapılır: grep -q "^X=." .env && echo dolu
 - Bu kontrolde X yerine gerekli değişken adını kullan; değerini gösterme.
