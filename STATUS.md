@@ -1145,6 +1145,68 @@ animasyona bagli degil**; `prefers-reduced-motion` ikisini de kapatir.
 Yatay tasma yok; 1920 ve 1440'ta akisin tamami kaydirmasiz siğiyor.
 `overflow: hidden` zorlanmadi.
 
+## Render deploy sonrasi duzeltme - vekalet secimi
+
+Tarih: 2026-10-24. Canli: https://tugra.onrender.com
+
+### Kok neden
+
+Ekran vekalet numarasini YALNIZCA URL sorgu parametresinden aliyordu
+(`app.js`: `new URLSearchParams(location.search).get("mandateId")`).
+Adres parametresiz acilinca `mandateId` bos kaliyor, `/api/state` sorgusuz
+cagriliyor ve `mandate: null` donuyordu. Kasa bakiyesi gorunuyordu cunku o
+alan vekaletten bagimsiz.
+
+Uc olasilik salt okunur olarak elendi:
+
+| Olasilik | Sonuc |
+| -------- | ----- |
+| RPC hatasi | **Hayir.** `GET /api/state?mandateId=2` canlida tam veriyi dondurdu (`used: true`, Turkce etiket) |
+| Bellek ici denemeden besleniyor | **Hayir.** `attempts: 0` iken bile zincir okumasi calisti |
+| Kullanici secimi bekliyor | **Evet.** `MANDATE_ID` `.env.example`'da vardi ama `server/index.js` onu hic okumuyordu |
+
+### Uygulanan en kucuk cozum
+
+Otomatik "son vekaleti sec" davranisi EKLENMEDI.
+
+1. `server/index.js` -> `config.defaultMandateId = process.env.MANDATE_ID || null`
+2. `server/server.js` -> `const wanted = q !== undefined && q !== "" ? q : config.defaultMandateId`
+3. `server/public/app.js` -> URL'de kimlik yoksa sunucunun dondurdugu kimlik
+   benimsenir; `state`, `data` ve `attempt` yollari ayni vekaleti kullanir.
+
+Oncelik: **URL sorgusu > yapilandirilan varsayilan > hicbiri**.
+
+Gecersiz kimlikte **sessizce baska vekalete GECILMEZ**. Sunucu
+`{error, requestedId, detail}` doner; ekran "Vekalet #99 okunamadi" yazar,
+muhur gizlenir, alanlar bos kalir.
+
+Render'a eklenecek: `MANDATE_ID` = `2` (gizli degil).
+
+### Dogrulama - 57 test, hepsi gecti
+
+Sahte bagimliliklarla (`server/test/mandate-select.test.js`):
+
+| Senaryo | Dogrulanan |
+| ------- | ---------- |
+| Varsayilan yok, parametre yok | `mandate: null`, zincir bosuna okunmuyor |
+| Varsayilan #2, parametre yok | #2 zincirden okunuyor, `used: true` |
+| Varsayilan #2, `?mandateId=7` | **7** isteniyor; sorgu varsayilani eziyor |
+| `?mandateId=99` (yok) | `error` + `requestedId: 99`; **#2'ye dusulmuyor** |
+| Varsayilan gecersiz (#404) | Yine baska vekalete gecilmiyor |
+| `?mandateId=` (bos) | Varsayilana duser |
+
+Sahte zincir adaptoru de gercek davranisa yaklastirildi: `getMandate`
+artik istenen kimlige saygi duyuyor, eslesmezse hata veriyor.
+
+Uctan uca tarayici kontrolu: parametresiz acilista vekalet goruntulendi,
+muhur uzeri cizili ve "KULLANILDI" yazdi; `?mandateId=99` ile
+"VEKALET #99 OKUNAMADI" gorundu, baska vekalete gecilmedi.
+
+### Guvenlik notu
+
+IDE secimi yoluyla `OPERATOR_TOKEN` degeri sohbet baglamina dustu.
+Belirtecin hem `.env` hem Render panelinde **degistirilmesi** gerekiyor.
+
 ## Organizator sartlari (slaytlardan, 2026-10-24)
 
 - Teslim 16.30; hedef 16.00.

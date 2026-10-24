@@ -47,6 +47,11 @@ config.agentAddress = chain.agentAddress;
 // test anlamsiz olurdu (dogru aliciya duserdi), bu yuzden sessizce
 // varsayilana DUSULMEZ - arayuz yolu kapatir.
 config.attackerAddress = process.env.ATTACKER_ADDRESS || null;
+
+// Ekran parametresiz acildiginda gosterilecek vekalet. URL'deki
+// ?mandateId=... bunu EZER. Tanimli degilse ekran vekalet beklemeye devam
+// eder; otomatik olarak baska bir vekalete GECILMEZ.
+config.defaultMandateId = process.env.MANDATE_ID || null;
 if (process.env.PROVIDER_ADDRESS) {
   config.payeeLabels[process.env.PROVIDER_ADDRESS.toLowerCase()] = "Kayıtlı sağlayıcı";
 }
@@ -74,4 +79,9 @@ app.listen(port, "0.0.0.0", () => {
   if (!config.attackerAddress) {
     console.log("UYARI: ATTACKER_ADDRESS yok. Kontrollu test yolu kullanilamaz.");
   }
+  console.log(
+    config.defaultMandateId
+      ? `Varsayilan vekalet: #${config.defaultMandateId}`
+      : "UYARI: MANDATE_ID yok. Ekran ?mandateId=... bekler.",
+  );
 });

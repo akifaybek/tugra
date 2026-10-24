@@ -119,10 +119,13 @@ export function createApp({ chain, model, queue, config, budget, now = Date.now 
       vault = null;
       agent = null;
     }
-    // Istenirse tek bir vekaletin zincirdeki durumu (salt okunur).
+    // Tek bir vekaletin zincirdeki durumu (salt okunur).
+    // Oncelik: URL sorgusu > yapilandirilan varsayilan. Ikisi de yoksa null.
+    // Istenen kimlik okunamazsa BASKA bir vekalete gecilmez; hata donulur.
     let mandate = null;
-    const wanted = req.query.mandateId;
-    if (wanted !== undefined && wanted !== "") {
+    const q = req.query.mandateId;
+    const wanted = q !== undefined && q !== "" ? q : config.defaultMandateId;
+    if (wanted !== undefined && wanted !== null && wanted !== "") {
       try {
         const m = await chain.getMandate(wanted);
         mandate = {
@@ -136,7 +139,11 @@ export function createApp({ chain, model, queue, config, budget, now = Date.now 
           revoked: m.revoked,
         };
       } catch (err) {
-        mandate = { error: "vekalet okunamadi" };
+        mandate = {
+          error: "vekalet okunamadi",
+          requestedId: String(wanted),
+          detail: err.shortMessage || err.message || "bilinmeyen hata",
+        };
       }
     }
 
@@ -144,6 +151,7 @@ export function createApp({ chain, model, queue, config, budget, now = Date.now 
       chainId: config.chainId,
       scope: "Monad testnet - native MON",
       mandate,
+      defaultMandateId: config.defaultMandateId ?? null,
       explorerBase: chain.explorerTx ? chain.explorerTx("").replace(/\/$/, "") : null,
       serverTime: new Date(now()).toISOString(),
       vaultAddress: chain.vaultAddress,

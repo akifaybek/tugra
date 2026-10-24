@@ -65,6 +65,7 @@ const app = createApp({
     gasMultiplierNum: 12,
     gasMultiplierDen: 10,
     operatorToken: TOKEN,
+    defaultMandateId: process.env.MANDATE_ID || null,
     fixtures: true,
   },
 });

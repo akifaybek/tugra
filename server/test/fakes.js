@@ -49,8 +49,14 @@ export function makeChain({ mandate = makeMandate(), overrides = {} } = {}) {
     explorerTx: (h) => `https://testnet.monadscan.com/tx/${h}`,
     calls,
 
-    async getMandate() {
+    // Gercek adaptor gibi davranir: istenmeyen kimlikte HATA verir,
+    // sessizce baska vekalet DONDURMEZ.
+    async getMandate(id) {
       calls.getMandate += 1;
+      calls.lastRequestedId = id === undefined ? undefined : String(id);
+      if (id !== undefined && String(id) !== String(current.id)) {
+        throw new Error(`UnknownMandate: ${id}`);
+      }
       return { ...current };
     },
 

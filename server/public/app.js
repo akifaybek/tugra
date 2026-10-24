@@ -8,7 +8,10 @@ const $ = (id) => document.getElementById(id);
 // Sayfa yenilenince kaybolur ve yeniden giris gerekir.
 let session = null;
 
-let mandateId = new URLSearchParams(location.search).get("mandateId") || "";
+// Oncelik: URL sorgusu. Yoksa sunucunun /api/state ile bildirdigi
+// yapilandirilan varsayilan benimsenir (refreshState icinde).
+const urlMandateId = new URLSearchParams(location.search).get("mandateId") || "";
+let mandateId = urlMandateId;
 let busy = false;
 let last = null;
 
@@ -108,14 +111,28 @@ function refreshControls() {
 function paintMandate(m, serverTimeMs) {
   const raw = $("mandateRaw");
   if (!m || m.error) {
-    $("docId").textContent = mandateId ? `#${mandateId}` : "—";
+    const id = m?.requestedId || mandateId;
+    $("docId").textContent = id ? `#${id}` : "—";
     $("payeeLabel").textContent = "—";
     $("amount").textContent = "—";
-    $("expiry").innerHTML = '—<span class="sub" id="expiryLeft"></span>';
+    $("expiry").innerHTML = "—";
     $("docState").hidden = true;
     $("seal").hidden = true;
-    $("sealCap").textContent = "";
-    raw.innerHTML = m && m.error ? "<dt>durum</dt><dd>vekâlet okunamadı</dd>" : "";
+
+    if (m && m.error) {
+      // Baska bir vekalete SESSIZCE gecilmez; sebep acikca yazilir.
+      $("sealCap").textContent = `Vekâlet #${id} okunamadı`;
+      $("payeeLabel").textContent = "Vekâlet okunamadı";
+      raw.innerHTML =
+        `<dt>istenen</dt><dd>#${id}</dd>` +
+        `<dt>sebep</dt><dd>${m.detail || "bilinmiyor"}</dd>`;
+    } else {
+      $("sealCap").textContent = mandateId ? "" : "Vekâlet seçilmedi";
+      $("payeeLabel").textContent = mandateId ? "—" : "Vekâlet numarası yok";
+      raw.innerHTML = mandateId
+        ? ""
+        : "<dt>nasıl</dt><dd>MANDATE_ID tanımlayın ya da adrese ?mandateId=… ekleyin</dd>";
+    }
     return;
   }
 
@@ -401,6 +418,13 @@ async function refreshState() {
   $("vaultBal").textContent = fmtMon(s.vaultBalanceMon);
   $("fixtureBanner").hidden = !s.fixtures;
   $("scope").textContent = `chainId ${s.chainId}`;
+
+  // URL'de kimlik yoksa sunucunun bildirdigi varsayilani benimse; boylece
+  // state/data/attempt yollari ayni vekaleti kullanir.
+  if (!urlMandateId) {
+    if (s.mandate && s.mandate.id) mandateId = s.mandate.id;
+    else if (s.defaultMandateId) mandateId = String(s.defaultMandateId);
+  }
 
   paintMandate(s.mandate, Date.parse(s.serverTime) || Date.now());
 
